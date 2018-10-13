@@ -1118,7 +1118,7 @@ struct bn *bn_new_prob_prime(int nbits)
 	fseek(f, 0, SEEK_SET);
 	primes = malloc(sz);
 	assert(primes);
-	fread(primes, sz, 1, f);
+	nprimes = fread(primes, sz, 1, f);
 	fclose(f);
 	nprimes = sz/sizeof(int);
 	if (nprimes > PRIME_TEST_LIMIT)
