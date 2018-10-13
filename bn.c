@@ -7,6 +7,10 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
+
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #include <sys/bn.h>
 #include <sys/limb.h>
@@ -419,14 +423,12 @@ void bn_print(const char *msg, const struct bn *b)
 	if (b->neg)
 		printf("-");
 
-	printf("0x");
 	for (i = b->nsig - 1; i >= 0; --i) {
 		if (i == b->nsig - 1)
 			fmt = "%x";
 		else
 			fmt = LIMB_FMT_STR;
 		printf(fmt, b->l[i]);
-//		printf(" ");
 	}
 	printf("\n");
 }
@@ -1095,14 +1097,31 @@ void bn_mod_pow(struct bn *a, const struct bn *e, const struct bn *m)
 	free(pow);
 }
 
-/* Fermat's. */
+#define PRIME_TEST_LIMIT 1000000
+
+/* Fermat's. The function is quite slow. Do not use for primes > 1024 bits. */
 struct bn *bn_new_prob_prime(int nbits)
 {
-	int nbytes, i;
+	int nbytes, i, comp, sz, nprimes;
 	uint8_t *bytes;
-	struct bn *n, *a, *two, *one, *nm1, *t;
+	struct bn *n, *a, *two, *one, *nm1, *t, *rem;
+	FILE *f;
+	int *primes;
 
 	assert(nbits > 1);
+
+	f = fopen("./primes.bin", "rb");
+	assert(f);
+	fseek(f, 0, SEEK_END);
+	sz = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	primes = malloc(sz);
+	assert(primes);
+	fread(primes, sz, 1, f);
+	fclose(f);
+	nprimes = sz/4;
+	if (nprimes > PRIME_TEST_LIMIT)
+		nprimes = PRIME_TEST_LIMIT;
 
 	n = BN_INVALID;
 	nbytes = nbits >> 3;
@@ -1117,23 +1136,43 @@ struct bn *bn_new_prob_prime(int nbits)
 	two = bn_new_zero();
 	bn_push_back(one, 1);
 	bn_push_back(two, 2);
+	rndm_fill(bytes, nbits);
+
+//	n = bn_new_from_string("3fc237c0331dc23265e6e2c76af63bef", 16);
+
+	n = bn_new_from_bytes(bytes, nbytes);
+	if (n == BN_INVALID)
+		goto err1;
+
+	bn_set_bit(n, 0);
+	bn_set_bit(n, nbits - 1);
 
 	for (;;) {
-		rndm_fill(bytes, nbits);
-
-//		n = bn_new_from_string("3fc237c0331dc23265e6e2c76af63bef", 16);
-//		(void)bn_set_bit;
-
-		n = bn_new_from_bytes(bytes, nbytes);
-		if (n == BN_INVALID)
-			goto err1;
-
-		bn_set_bit(n, 0);
-		bn_set_bit(n, nbits - 1);
+		/* TODO Handle Overflow. */
+		if (bn_msb(n) >= nbits)
+			assert(0);
 		bn_print(NULL, n);
 
-		a = bn_new_copy(two);
+		comp = 0;
+		a = bn_new_copy(one);
+		for (i = 0; i < nprimes && comp == 0; ++i) {
+			rem = BN_INVALID;
+			t = bn_new_copy(n);
+			a->l[0] = primes[i];
+			bn_div(t, a, &rem);
+			if (bn_is_zero(rem))
+				comp = 1;
+			bn_free(t);
+			bn_free(rem);
+		}
+		bn_free(a);
 
+		if (comp) {
+			bn_add(n, two);
+			continue;
+		}
+
+		a = bn_new_copy(two);
 		nm1 = bn_new_copy(n);
 		bn_sub(nm1, one);
 
@@ -1150,7 +1189,7 @@ struct bn *bn_new_prob_prime(int nbits)
 		bn_free(nm1);
 		if (i == 10)
 			break;
-		bn_free(n);
+		bn_add(n, two);
 	}
 	bn_free(one);
 	bn_free(two);
