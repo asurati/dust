@@ -1110,6 +1110,7 @@ struct bn *bn_new_prob_prime(int nbits)
 
 	assert(nbits > 1);
 
+	/* See primbin.txt to generate the binary. */
 	f = fopen("./primes.bin", "rb");
 	assert(f);
 	fseek(f, 0, SEEK_END);
