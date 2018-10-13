@@ -1119,7 +1119,7 @@ struct bn *bn_new_prob_prime(int nbits)
 	assert(primes);
 	fread(primes, sz, 1, f);
 	fclose(f);
-	nprimes = sz/4;
+	nprimes = sz/sizeof(int);
 	if (nprimes > PRIME_TEST_LIMIT)
 		nprimes = PRIME_TEST_LIMIT;
 
