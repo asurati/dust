@@ -1,0 +1,32 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+/* http://www.primos.mat.br/dados/2T_part1.7z */
+int main()
+{
+	FILE *f, *fb;
+	int prime;
+	size_t ret, n;
+	char *line, *tok;
+
+	f = fopen("/tmp/primes.txt", "r");
+	fb = fopen("/tmp/primes.bin", "wb");
+	while (1) {
+		line = NULL;
+		n = 0;
+		ret = getline(&line, &n, f);
+		if (ret == -1)
+			break;
+		tok = strtok(line, ",");
+		while (tok) {
+			sscanf(tok, "%d", &prime);
+			fwrite(&prime, sizeof(prime), 1, fb);
+			tok = strtok(NULL, ",");
+		}
+		free(line);
+	}
+	fclose(f);
+	fclose(fb);
+}
+
