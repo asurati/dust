@@ -1091,7 +1091,8 @@ void bn_mod_pow(struct bn *a, const struct bn *e, const struct bn *m)
 	for (i = 0; i < nbits; ++i) {
 		if (bn_test_bit(e, i))
 			bn_mul_mont(ctx, pow, a);
-		bn_mul_mont(ctx, a, a);
+		if (i < nbits - 1)
+			bn_mul_mont(ctx, a, a);
 	}
 	bn_from_mont(ctx, pow);
 	bn_ctx_mont_free(ctx);
@@ -1159,16 +1160,23 @@ struct bn *bn_new_prob_prime(int nbits)
 
 		comp = 0;
 		a = bn_new_copy(one);
+		t = bn_new_copy(n);
+
 		for (i = 0; i < nprimes && comp == 0; ++i) {
 			rem = BN_INVALID;
-			t = bn_new_copy(n);
 			a->l[0] = primes[i];
+
+			/* bn_div does not change the allocation of t->l .*/
 			bn_div(t, a, &rem);
-			if (bn_is_zero(rem))
+			if (bn_is_zero(rem)) {
 				comp = 1;
-			bn_free(t);
+			} else {
+				memcpy(t->l, n->l, n->nsig << LIMB_BYTES_LOG);
+				t->nsig = n->nsig;
+			}
 			bn_free(rem);
 		}
+		bn_free(t);
 		bn_free(a);
 
 		if (comp) {
