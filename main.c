@@ -10,6 +10,6 @@ int main()
 {
 	struct bn *a;
 	a = bn_new_prob_prime(256);
-	bn_print(a);
+	bn_print(NULL, a);
 	return 0;
 }

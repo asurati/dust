@@ -14,7 +14,7 @@ struct bn;
 
 #define BN_INVALID			(struct bn *)NULL
 
-void		 bn_print(const struct bn *b);
+void		 bn_print(const char *msg, const struct bn *b);
 
 void		 bn_add(struct bn *a, const struct bn *b);
 void		 bn_sub(struct bn *a, const struct bn *b);

@@ -24,6 +24,16 @@ static void bn_nsig_invariant(const struct bn *b)
 	assert(bn_is_zero(b) || b->l[b->nsig - 1]);
 }
 
+/* TODO check validity of the bit input. */
+static char bn_test_bit(const struct bn *b, int bit)
+{
+	int l;
+
+	l = bit >> LIMB_BITS_LOG;
+	bit &= LIMB_BITS_MASK;
+	return b->l[l] & ((limb_t)1 << bit) ? 1 : 0;
+}
+
 static char bn_is_even(const struct bn *b)
 {
 	if (bn_is_zero(b))
@@ -236,38 +246,22 @@ static void bn_mul_kar(struct bn *a, const struct bn *b)
 	bn_snap(&ah);
 	bn_snap(&bh);
 
-	/*
-	   printf("al:");bn_print(&al);
-	   printf("bl:");bn_print(&bl);
-	   printf("ah:");bn_print(&ah);
-	   printf("bh:");bn_print(&bh);
-	   */
-
 	ra = bn_new_copy(&ah);
 	rd = bn_new_copy(&al);
 	bn_mul_kar(ra, &bh);	/* z2. */
-	//	printf("ra0:");bn_print(ra);
 	bn_mul_kar(rd, &bl);	/* z0. */
 
 	/* Wikipedia: Avoid overflow. */
 	bn_sub(&al, &ah);
-	//	printf("al0:");bn_print(&al);
 	bn_sub(&bh, &bl);
 	bn_mul_kar(&al, &bh);
-	//	printf("al1:");bn_print(&al);
 	bn_add(&al, ra);
-	//	printf("al2:");bn_print(&al);
 	bn_add(&al, rd);	/* z1/re. */
-	//	printf("rd0:");bn_print(rd);
-	//	printf("al3:");bn_print(&al);
 
 	bn_shl(ra, mx << (LIMB_BITS_LOG + 1));
-	//	printf("ra1:");bn_print(ra);
 	bn_shl(&al, mx << LIMB_BITS_LOG);
-	//	printf("al4:");bn_print(&al);
 	bn_add(ra, &al);
 	bn_add(ra, rd);
-	//	printf("ra2:");bn_print(ra);
 
 	bn_zero(&al);
 	bn_zero(&ah);
@@ -407,12 +401,15 @@ void bn_free(struct bn *b)
 	free(b);
 }
 
-void bn_print(const struct bn *b)
+void bn_print(const char *msg, const struct bn *b)
 {
 	int i;
 	const char *fmt;
 
 	assert(b != BN_INVALID);
+
+	if (msg)
+		printf("%s", msg);
 
 	if (bn_is_zero(b)) {
 		printf("0\n");
@@ -429,7 +426,7 @@ void bn_print(const struct bn *b)
 		else
 			fmt = LIMB_FMT_STR;
 		printf(fmt, b->l[i]);
-		printf(" ");
+//		printf(" ");
 	}
 	printf("\n");
 }
@@ -539,17 +536,30 @@ err0:
 	return b;
 }
 
-void bn_add(struct bn *a, const struct bn *b)
+void bn_and(struct bn *a, const struct bn *b)
 {
 	assert(a != BN_INVALID && b != BN_INVALID);
 
+	if (bn_is_zero(a))
+		return;
+
+	if (bn_is_zero(b)) {
+		bn_zero(a);
+		return;
+	}
+	limb_and(a->l, a->nsig, b->l, b->nsig);
+	bn_snap(a);
+}
+
+void bn_add(struct bn *a, const struct bn *b)
+{
+	assert(a != BN_INVALID && b != BN_INVALID);
 	bn_add_sub(a, b, a->neg == b->neg);
 }
 
 void bn_sub(struct bn *a, const struct bn *b)
 {
 	assert(a != BN_INVALID && b != BN_INVALID);
-
 	bn_add_sub(a, b, a->neg != b->neg);
 }
 
@@ -784,20 +794,11 @@ void bn_mod(struct bn *a, const struct bn *b)
 
 	ta = bn_new_copy(a);
 
-	//	printf("====\n");
-	//	bn_print(a);
-	//	bn_print(b);
 	bn_div(a, b, &rem);
-	//	bn_print(a);
-	//	bn_print(rem);
 
-	//	printf("----\n");
 	bn_mul(a, b);
-	//	bn_print(a);
 	bn_add(a, rem);
-	//	bn_print(a);
 	assert(bn_cmp_abs(a, ta) == 0);
-	//	printf("----d\n");
 	bn_free(ta);
 
 	bn_zero(a);
@@ -944,32 +945,151 @@ char bn_mod_inv(struct bn *a, const struct bn *m)
 	return 1;
 }
 
-/* Binary right-to-left. */
+static struct bn_ctx_mont *bn_ctx_mont_new(const struct bn *m)
+{
+	int msb;
+	struct bn *one, *t;
+	struct bn_ctx_mont *ctx;
+
+	/* Montgomery. Restrict to odd, >= 3 m. */
+	assert(!bn_is_even(m));
+
+	msb = bn_msb(m);
+	assert(msb >= 1);
+
+	ctx = malloc(sizeof(*ctx));
+	assert(ctx);
+	ctx->msb = msb;
+	ctx->m = bn_new_copy(m);
+
+	one = bn_new();
+	bn_push_back(one, 1);
+
+	ctx->r = bn_new_copy(one);
+	bn_shl(ctx->r, msb + 1);
+
+	ctx->mask = bn_new_copy(ctx->r);
+	bn_sub(ctx->mask, one);
+
+	ctx->one = bn_new_copy(ctx->r);
+	bn_mod(ctx->one, m);
+
+	ctx->rinv = bn_new_copy(ctx->r);
+	bn_mod_inv(ctx->rinv, m);
+
+	t = bn_new_copy(ctx->r);
+	bn_mul(t, ctx->rinv);	/* rr'. */
+	ctx->factor = bn_new_copy(t);
+
+	/* Check rr' == 1 mod m. */
+	bn_mod(t, m);
+	assert(t->nsig == 1 && t->neg == 0 && t->l[0] == 1);
+	bn_free(t);
+	t = BN_INVALID;
+
+	bn_sub(ctx->factor, one);
+	bn_div(ctx->factor, m, &t);
+	assert(bn_is_zero(t));
+	bn_free(t);
+	bn_free(one);
+
+	return ctx;
+}
+
+static void bn_ctx_mont_free(struct bn_ctx_mont *ctx)
+{
+	assert(ctx);
+	bn_free(ctx->m);
+	bn_free(ctx->r);
+	bn_free(ctx->rinv);
+	bn_free(ctx->factor);
+	bn_free(ctx->one);
+	bn_free(ctx->mask);
+	free(ctx);
+}
+
+static void bn_to_mont(const struct bn_ctx_mont *ctx, struct bn *b)
+{
+	assert(ctx);
+	assert(b);
+
+	if (bn_is_zero(b))
+		return;
+	bn_shl(b, ctx->msb + 1);
+	bn_mod(b, ctx->m);
+}
+
+static void bn_from_mont(const struct bn_ctx_mont *ctx, struct bn *b)
+{
+	assert(ctx);
+	assert(b);
+
+	if (bn_is_zero(b))
+		return;
+	bn_mul(b, ctx->rinv);
+	bn_mod(b, ctx->m);
+}
+
+/* a and b are in Montgomery form. */
+static void bn_mul_mont(const struct bn_ctx_mont *ctx, struct bn *a,
+			const struct bn *b)
+{
+	struct bn *t;
+
+	assert(a->neg == 0);
+	assert(b->neg == 0);
+	assert(bn_cmp_abs(a, ctx->m) < 0);
+	assert(bn_cmp_abs(b, ctx->m) < 0);
+
+	bn_mul(a, b);
+	t = bn_new_copy(a);
+	bn_and(a, ctx->mask);
+	bn_mul(a, ctx->factor);
+	bn_and(a, ctx->mask);
+	bn_mul(a, ctx->m);
+	bn_add(a, t);
+	bn_shr(a, ctx->msb + 1);
+
+	if (bn_cmp_abs(a, ctx->m) >= 0)
+		bn_sub(a, ctx->m);
+	bn_free(t);
+	assert(bn_cmp_abs(a, ctx->m) < 0);
+}
+
+/* a^e  % m. Montogomery, binary right-to-left. */
 void bn_mod_pow(struct bn *a, const struct bn *e, const struct bn *m)
 {
-	struct bn *te, *pow;
+	int nbits, i;
+	struct bn_ctx_mont *ctx;
+	struct bn *pow;
 
-	bn_mod(a, m);
+	assert(a != BN_INVALID);
+	assert(e != BN_INVALID);
+	assert(m != BN_INVALID);
+
+	/* If a is 0, return 0. */
 	if (bn_is_zero(a))
 		return;
 
-	pow = bn_new();
-	bn_push_back(pow, 1);
-
-	te = bn_new_copy(e);
-	for (;;) {
-		if (bn_is_zero(te))
-			break;
-
-		if (!bn_is_even(te)) {
-			bn_mul(pow, a);
-			bn_mod(pow, m);
-		}
-		bn_shr(te, 1);
-		bn_mul(a, a);
-		bn_mod(a, m);
+	/* If e is 0, return 1. */
+	if (bn_is_zero(e)) {
+		bn_zero(a);
+		bn_push_back(a, 1);
+		return;
 	}
-	bn_free(te);
+
+	nbits = bn_msb(e) + 1;
+	ctx = bn_ctx_mont_new(m);
+
+	bn_to_mont(ctx, a);
+	pow = bn_new_copy(ctx->one);
+	for (i = 0; i < nbits; ++i) {
+		if (bn_test_bit(e, i))
+			bn_mul_mont(ctx, pow, a);
+		bn_mul_mont(ctx, a, a);
+	}
+	bn_from_mont(ctx, pow);
+	bn_ctx_mont_free(ctx);
 	bn_zero(a);
 	*a = *pow;
 	free(pow);
@@ -1000,8 +1120,9 @@ struct bn *bn_new_prob_prime(int nbits)
 
 	for (;;) {
 		rndm_fill(bytes, nbits);
-		//		n = bn_new_from_string("3fc237c0331dc23265e6e2c76af63bef", 16);
-		//		(void)bn_set_bit;
+
+//		n = bn_new_from_string("3fc237c0331dc23265e6e2c76af63bef", 16);
+//		(void)bn_set_bit;
 
 		n = bn_new_from_bytes(bytes, nbytes);
 		if (n == BN_INVALID)
@@ -1015,7 +1136,7 @@ struct bn *bn_new_prob_prime(int nbits)
 		nm1 = bn_new_copy(n);
 		bn_sub(nm1, one);
 
-		for (i = 0; i < 100; ++i) {
+		for (i = 0; i < 10; ++i) {
 			/* TODO check a with n - 2. */
 			t = bn_new_copy(a);
 			bn_mod_pow(t, nm1, n);
@@ -1026,7 +1147,7 @@ struct bn *bn_new_prob_prime(int nbits)
 		}
 		bn_free(a);
 		bn_free(nm1);
-		if (i == 100)
+		if (i == 10)
 			break;
 		bn_free(n);
 	}
