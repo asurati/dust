@@ -23,6 +23,7 @@ typedef int64_t slimb2_t;
 
 limb_t		 limb_add(limb_t *a, int na, const limb_t *b, int nb);
 limb_t		 limb_sub(limb_t *a, int na, const limb_t *b, int nb);
+void		 limb_and(limb_t *a, int na, const limb_t *b, int nb);
 limb_t		 limb_mul(limb_t *a, int na, limb_t b);
 void		 limb_shl(limb_t *a, int na_prev, int na_curr, int c);
 void		 limb_shr(limb_t *a, int na_prev, int na_curr, int c);

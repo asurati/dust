@@ -58,6 +58,26 @@ limb_t limb_sub(limb_t *a, int na, const limb_t *b, int nb)
 	return r;
 }
 
+void limb_and(limb_t *a, int na, const limb_t *b, int nb)
+{
+	limb_t r;
+	int i, mn;
+
+	assert(na >= 0);
+	assert(nb >= 0);
+
+	mn = na <= nb ? na : nb;
+
+	for (i = 0; i < na; ++i) {
+		if (i < mn)
+			r = a[i] & b[i];
+		else
+			r = 0;
+
+		a[i] = r;
+	}
+}
+
 int limb_cmp(const limb_t *a, int na, const limb_t *b, int nb)
 {
 	int diff, i;
@@ -145,7 +165,7 @@ void limb_shr(limb_t *a, int na_prev, int na_curr, int c)
 	c &= LIMB_BITS_MASK;
 
 	/* Perform full limb-wise shifts. */
-	memmove(a, a + ls, na_curr << LIMB_BYTES_LOG);
+	memmove(a, a + ls, (na_prev - ls) << LIMB_BYTES_LOG);
 	memset(a + na_prev - ls, 0, ls << LIMB_BYTES_LOG);
 
 	/* No sub-limb shifts necessary. */
