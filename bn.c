@@ -696,13 +696,10 @@ void bn_div(struct bn *a, const struct bn *b, struct bn **r)
 		v  |= al;
 
 		/* Step D3. */
-		if (ah == bh) {
-			/* TODO. */
-			assert(0);
+		if (ah == bh)
 			q = -1;	/* 2^LIMB_BITS - 1. */
-		} else {
+		else
 			q = v / bh;
-		}
 
 		if (q == 0) {
 			/* Step D5. */
@@ -730,6 +727,12 @@ void bn_div(struct bn *a, const struct bn *b, struct bn **r)
 			--q;
 			rem >>= LIMB_BITS;
 			rem += bh;
+		}
+
+		if (q == 0) {
+			/* Step D5. */
+			a->l[i] = q;
+			continue;
 		}
 
 		/*
