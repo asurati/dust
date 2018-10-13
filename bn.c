@@ -366,7 +366,7 @@ struct bn *bn_new_copy(const struct bn *b)
 {
 	struct bn *a;
 
-	a = bn_new();
+	a = bn_new_zero();
 
 	if (bn_is_zero(b))
 		return a;
@@ -385,12 +385,12 @@ err0:
 	return BN_INVALID;
 }
 
-struct bn *bn_new()
+struct bn *bn_new_zero()
 {
 	struct bn *b;
+	/* calloc is equivalent to bn_zero. */
 	b = calloc(1, sizeof(*b));
 	assert(b);
-	bn_zero(b);
 	return b;
 }
 
@@ -448,7 +448,7 @@ struct bn *bn_new_from_bytes(const uint8_t *bytes, int len)
 	if (bytes == NULL || len <= 0)
 		goto err0;
 
-	b = bn_new();
+	b = bn_new_zero();
 
 	b->nalloc = len >> LIMB_BYTES_LOG;
 	if (len & LIMB_BYTES_MASK)
@@ -880,8 +880,8 @@ char bn_mod_inv(struct bn *a, const struct bn *m)
 	r0 = bn_new_copy(a);
 	r1 = bn_new_copy(m);
 
-	s0 = bn_new();
-	s1 = bn_new();
+	s0 = bn_new_zero();
+	s1 = bn_new_zero();
 	bn_push_back(s0, 1);
 
 	/*
@@ -962,7 +962,7 @@ static struct bn_ctx_mont *bn_ctx_mont_new(const struct bn *m)
 	ctx->msb = msb;
 	ctx->m = bn_new_copy(m);
 
-	one = bn_new();
+	one = bn_new_zero();
 	bn_push_back(one, 1);
 
 	ctx->r = bn_new_copy(one);
@@ -1113,8 +1113,8 @@ struct bn *bn_new_prob_prime(int nbits)
 	if (bytes == NULL)
 		goto err0;
 
-	one = bn_new();
-	two = bn_new();
+	one = bn_new_zero();
+	two = bn_new_zero();
 	bn_push_back(one, 1);
 	bn_push_back(two, 2);
 
@@ -1130,6 +1130,7 @@ struct bn *bn_new_prob_prime(int nbits)
 
 		bn_set_bit(n, 0);
 		bn_set_bit(n, nbits - 1);
+		bn_print(NULL, n);
 
 		a = bn_new_copy(two);
 
