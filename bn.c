@@ -1192,8 +1192,10 @@ struct bn *bn_new_prob_prime(int nbits)
 			/* TODO check a with n - 2. */
 			t = bn_new_copy(a);
 			bn_mod_pow(t, nm1, n);
-			if (t->neg != 0 || t->nsig != 1 || t->l[0] != 1)
+			if (t->neg != 0 || t->nsig != 1 || t->l[0] != 1) {
+				bn_free(t);
 				break;
+			}
 			bn_free(t);
 			bn_add(a, one);
 		}
