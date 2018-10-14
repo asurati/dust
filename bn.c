@@ -1061,7 +1061,7 @@ static void bn_mul_mont(const struct bn_ctx_mont *ctx, struct bn *a,
 	assert(bn_cmp_abs(a, ctx->m) < 0);
 }
 
-/* a^e  % m. Montogomery, binary right-to-left. */
+/* a^e  % m. Montgomery, binary right-to-left. */
 void bn_mod_pow(struct bn *a, const struct bn *e, const struct bn *m)
 {
 	int nbits, i;
