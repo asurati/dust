@@ -10,6 +10,10 @@
 #include <bn.h>
 #include <sys/limb.h>
 
+/*
+ * TODO Define APIs to accept a struct bn representing a modulus M which
+ * is to be used to restrict the results of the operations to mod M.
+ */
 struct bn {
 	int nalloc;	/* # of allocated limbs. */
 	int nsig;	/* # of signitficant limbs. */
