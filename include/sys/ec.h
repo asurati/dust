@@ -28,6 +28,7 @@ struct ec_mont {
 	struct bn *b;
 	struct bn *order;
 	struct ec_point gen;
+	struct bn_ctx_mont *mctx;
 };
 
 struct ec {
