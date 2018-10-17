@@ -11,6 +11,7 @@
 #include <stdlib.h>
 
 struct bn;
+struct bn_ctx_mont;
 
 #define BN_INVALID			(struct bn *)NULL
 
@@ -25,6 +26,7 @@ void		 bn_shl(struct bn *a, int c);
 void		 bn_shr(struct bn *a, int c);
 void		 bn_gcd(struct bn *a, const struct bn *b);
 
+int		 bn_cmp_abs(const struct bn *a, const struct bn *b);
 char		 bn_mod_inv(struct bn *a, const struct bn *m);
 void		 bn_mod_pow(struct bn *a, const struct bn *e,
 		 const struct bn *m);
@@ -38,4 +40,16 @@ struct bn	*bn_new_copy(const struct bn *b);
 struct bn	*bn_new_prob_prime(int nbits);
 
 void		 bn_free(struct bn *b);
+
+
+
+struct bn_ctx_mont
+		*bn_ctx_mont_new(const struct bn *m);
+void		 bn_ctx_mont_free(struct bn_ctx_mont *ctx);
+void		 bn_to_mont(const struct bn_ctx_mont *ctx, struct bn *b);
+void		 bn_from_mont(const struct bn_ctx_mont *ctx, struct bn *b);
+void		 bn_mul_mont(const struct bn_ctx_mont *ctx, struct bn *a,
+		 const struct bn *b);
+void		 bn_mod_pow_mont(const struct bn_ctx_mont *ctx, struct bn *a,
+		 const struct bn *e);
 #endif

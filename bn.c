@@ -287,12 +287,6 @@ static void bn_mul_kar(struct bn *a, const struct bn *b)
 	bn_nsig_invariant(a);
 }
 
-/* Compare without considering signs. */
-static int bn_cmp_abs(const struct bn *a, const struct bn *b)
-{
-	return limb_cmp(a->l, a->nsig, b->l, b->nsig);
-}
-
 /* Subtract without considering signs of a and b. */
 static void bn_sub_abs(struct bn *a, const struct bn *b)
 {
@@ -558,6 +552,12 @@ struct bn *bn_new_from_int(int v)
 	}
 	bn_push_back(b, v);
 	return b;
+}
+
+/* Compare without considering signs. */
+int bn_cmp_abs(const struct bn *a, const struct bn *b)
+{
+	return limb_cmp(a->l, a->nsig, b->l, b->nsig);
 }
 
 void bn_and(struct bn *a, const struct bn *b)
@@ -983,7 +983,7 @@ char bn_mod_inv(struct bn *a, const struct bn *m)
 
 /* Montgomery calculations. */
 
-static struct bn_ctx_mont *bn_ctx_mont_new(const struct bn *m)
+struct bn_ctx_mont *bn_ctx_mont_new(const struct bn *m)
 {
 	int msb;
 	struct bn *one, *t;
@@ -1033,7 +1033,7 @@ static struct bn_ctx_mont *bn_ctx_mont_new(const struct bn *m)
 	return ctx;
 }
 
-static void bn_ctx_mont_free(struct bn_ctx_mont *ctx)
+void bn_ctx_mont_free(struct bn_ctx_mont *ctx)
 {
 	assert(ctx);
 	bn_free(ctx->m);
@@ -1045,7 +1045,7 @@ static void bn_ctx_mont_free(struct bn_ctx_mont *ctx)
 	free(ctx);
 }
 
-static void bn_to_mont(const struct bn_ctx_mont *ctx, struct bn *b)
+void bn_to_mont(const struct bn_ctx_mont *ctx, struct bn *b)
 {
 	assert(ctx);
 	assert(b);
@@ -1056,7 +1056,7 @@ static void bn_to_mont(const struct bn_ctx_mont *ctx, struct bn *b)
 	bn_mod(b, ctx->m);
 }
 
-static void bn_from_mont(const struct bn_ctx_mont *ctx, struct bn *b)
+void bn_from_mont(const struct bn_ctx_mont *ctx, struct bn *b)
 {
 	assert(ctx);
 	assert(b);
@@ -1068,8 +1068,8 @@ static void bn_from_mont(const struct bn_ctx_mont *ctx, struct bn *b)
 }
 
 /* a and b are in Montgomery form. */
-static void bn_mul_mont(const struct bn_ctx_mont *ctx, struct bn *a,
-			const struct bn *b)
+void bn_mul_mont(const struct bn_ctx_mont *ctx, struct bn *a,
+		 const struct bn *b)
 {
 	struct bn *t;
 
@@ -1097,8 +1097,8 @@ static void bn_mul_mont(const struct bn_ctx_mont *ctx, struct bn *a,
  * a and pow are in Montgomery form, e is a regular number.
  * Binary right-to-left.
  */
-static void bn_mod_pow_mont(const struct bn_ctx_mont *ctx,
-			    struct bn *a, const struct bn *e)
+void bn_mod_pow_mont(const struct bn_ctx_mont *ctx,
+		     struct bn *a, const struct bn *e)
 {
 	int i, nbits;
 	struct bn *pow;
