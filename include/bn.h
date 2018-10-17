@@ -25,6 +25,7 @@ void		 bn_mod(struct bn *a, const struct bn *b);
 void		 bn_shl(struct bn *a, int c);
 void		 bn_shr(struct bn *a, int c);
 void		 bn_gcd(struct bn *a, const struct bn *b);
+int		 bn_msb(const struct bn *a);
 
 int		 bn_cmp_abs(const struct bn *a, const struct bn *b);
 char		 bn_mod_inv(struct bn *a, const struct bn *m);

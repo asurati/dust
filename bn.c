@@ -74,7 +74,7 @@ static int bn_bsr(limb_t v)
 	return msb;
 }
 
-static int bn_msb(const struct bn *b)
+int bn_msb(const struct bn *b)
 {
 	int msb;
 
