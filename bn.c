@@ -758,7 +758,7 @@ void bn_div(struct bn *a, const struct bn *b, struct bn **r)
 		if (sr) {
 			--q;
 			sr += limb_add(ta->l + j - tb->nsig, tb->nsig + 1,
-				       t->l, t->nsig);
+				       tb->l, tb->nsig);
 		}
 		assert(sr == 0);
 
