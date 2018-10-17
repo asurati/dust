@@ -16,6 +16,12 @@
 #include <sys/limb.h>
 #include <rndm.h>
 
+static char bn_is_one(const struct bn *b)
+{
+	assert(b != BN_INVALID);
+	return b->nsig == 1 && b->neg == 0 && b->l[0] == (limb_t)1;
+}
+
 static char bn_is_zero(const struct bn *b)
 {
 	assert(b != BN_INVALID);
@@ -988,7 +994,7 @@ static struct bn_ctx_mont *bn_ctx_mont_new(const struct bn *m)
 
 	/* Check rr' == 1 mod m. */
 	bn_mod(t, m);
-	assert(t->nsig == 1 && t->neg == 0 && t->l[0] == 1);
+	assert(bn_is_one(t));
 	bn_free(t);
 	t = BN_INVALID;
 
@@ -1192,7 +1198,7 @@ struct bn *bn_new_prob_prime(int nbits)
 			/* TODO check a with n - 2. */
 			t = bn_new_copy(a);
 			bn_mod_pow(t, nm1, n);
-			if (t->neg != 0 || t->nsig != 1 || t->l[0] != 1) {
+			if (!bn_is_one(t)) {
 				bn_free(t);
 				break;
 			}
