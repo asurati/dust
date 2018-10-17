@@ -11,8 +11,13 @@
 
 int main()
 {
+	struct bn *a, *m, *t;
 	struct ec *ec;
 	struct ec_mont_params emp;
+	const char *gy0 =
+	"20ae19a1b8a086b4e01edd2c7748d14c923d4d7e6d7c61b229e9c5a27eced3d9";
+	const char *gy1 =
+	"5f51e65e475f794b1fe122d388b72eb36dc2b28192839e4dd6163a5d81312c14";
 
 	emp.prime ="7fffffffffffffff ffffffffffffffff ffffffffffffffff"
 		"ffffffffffffffed";
@@ -22,8 +27,36 @@ int main()
 	emp.order = "1000000000000000 0000000000000000 14def9dea2f79cd6"
 		"5812631a5cf5d3ed";
 
+	/* Test. */
 	ec = ec_new_montgomery(&emp);
 	ec_free(ec);
+
+	/* 25981c8 = Curve25519(x=9), */
+	a = bn_new_from_string("25981c8", 16); // 39420360
+	m = bn_new_from_string(emp.prime, 16);
+
+	/* Two roots. Should be the same as gy0 and gy1 defined above. */
+	bn_mod_sqrt(a, m);
+	bn_print("sqrt: ", a);
+	t = bn_new_copy(m);
+	bn_sub(t, a);
+	bn_print("sqrt: ", t);
+	bn_free(a);
+	bn_free(t);
+
+	/* Verify gy0 and gy1 are the roots. */
+	a = bn_new_from_string(gy0, 16);
+	bn_mul(a, a);
+	bn_mod(a, m);
+	bn_print("sqr: ", a);
+	bn_free(a);
+
+	a = bn_new_from_string(gy1, 16);
+	bn_mul(a, a);
+	bn_mod(a, m);
+	bn_print("sqr: ", a);
+	bn_free(a);
+	return 0;
 }
 
 #if 0
