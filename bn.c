@@ -544,6 +544,22 @@ err0:
 	return b;
 }
 
+/* Requirement: sizeof(limb) >= sizeof(int). */
+struct bn *bn_new_from_int(int v)
+{
+	struct bn *b;
+	b = bn_new_zero();
+	if (v == 0)
+		return b;
+
+	if (v < 0) {
+		b->neg = 1;
+		v = -v;
+	}
+	bn_push_back(b, v);
+	return b;
+}
+
 void bn_and(struct bn *a, const struct bn *b)
 {
 	assert(a != BN_INVALID && b != BN_INVALID);
@@ -891,9 +907,8 @@ char bn_mod_inv(struct bn *a, const struct bn *m)
 	r0 = bn_new_copy(a);
 	r1 = bn_new_copy(m);
 
-	s0 = bn_new_zero();
+	s0 = bn_new_from_int(1);
 	s1 = bn_new_zero();
-	bn_push_back(s0, 1);
 
 	/*
 	 * r0, r1, s0, s1 from the table in the Wiki article.
@@ -973,8 +988,7 @@ static struct bn_ctx_mont *bn_ctx_mont_new(const struct bn *m)
 	ctx->msb = msb;
 	ctx->m = bn_new_copy(m);
 
-	one = bn_new_zero();
-	bn_push_back(one, 1);
+	one = bn_new_from_int(1);
 
 	ctx->r = bn_new_copy(one);
 	bn_shl(ctx->r, msb + 1);
@@ -1143,10 +1157,8 @@ struct bn *bn_new_prob_prime(int nbits)
 	if (bytes == NULL)
 		goto err0;
 
-	one = bn_new_zero();
-	two = bn_new_zero();
-	bn_push_back(one, 1);
-	bn_push_back(two, 2);
+	one = bn_new_from_int(1);
+	two = bn_new_from_int(2);
 	rndm_fill(bytes, nbits);
 
 //	n = bn_new_from_string("3fc237c0331dc23265e6e2c76af63bef", 16);
