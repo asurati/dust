@@ -81,7 +81,7 @@ static int bn_msb(const struct bn *b)
 	bn_nsig_invariant(b);
 
 	if(bn_is_zero(b))
-		return 0;
+		return -1;
 
 	msb = (b->nsig - 1) << LIMB_BITS_LOG;
 	msb += bn_bsr(b->l[b->nsig - 1]);
