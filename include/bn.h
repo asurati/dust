@@ -28,8 +28,10 @@ void		 bn_gcd(struct bn *a, const struct bn *b);
 char		 bn_mod_inv(struct bn *a, const struct bn *m);
 void		 bn_mod_pow(struct bn *a, const struct bn *e,
 		 const struct bn *m);
+void		 bn_mod_sqrt(struct bn *a, const struct bn *m);
 
 struct bn	*bn_new_zero();
+struct bn	*bn_new_from_int(int v);
 struct bn	*bn_new_from_bytes(const uint8_t *bytes, int len);
 struct bn	*bn_new_from_string(const char *str, int radix);
 struct bn	*bn_new_copy(const struct bn *b);
