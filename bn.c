@@ -971,6 +971,18 @@ char bn_mod_inv(struct bn *a, const struct bn *m)
 	return 1;
 }
 
+
+
+
+
+
+
+
+
+
+
+/* Montgomery calculations. */
+
 static struct bn_ctx_mont *bn_ctx_mont_new(const struct bn *m)
 {
 	int msb;
@@ -1081,12 +1093,37 @@ static void bn_mul_mont(const struct bn_ctx_mont *ctx, struct bn *a,
 	assert(bn_cmp_abs(a, ctx->m) < 0);
 }
 
-/* a^e  % m. Montgomery, binary right-to-left. */
+/*
+ * a and pow are in Montgomery form, e is a regular number.
+ * Binary right-to-left.
+ */
+static void bn_mod_pow_mont(const struct bn_ctx_mont *ctx,
+			    struct bn *a, const struct bn *e)
+{
+	int i, nbits;
+	struct bn *pow;
+
+	/* If a is 0, return 0. */
+	if (bn_is_zero(a))
+		return;
+
+	nbits = bn_msb(e) + 1;
+	pow = bn_new_copy(ctx->one);
+	for (i = 0; i < nbits; ++i) {
+		if (bn_test_bit(e, i))
+			bn_mul_mont(ctx, pow, a);
+		if (i < nbits - 1)
+			bn_mul_mont(ctx, a, a);
+	}
+	bn_zero(a);
+	*a = *pow;
+	free(pow);
+}
+
+/* a^e % m. */
 void bn_mod_pow(struct bn *a, const struct bn *e, const struct bn *m)
 {
-	int nbits, i;
 	struct bn_ctx_mont *ctx;
-	struct bn *pow;
 
 	assert(a != BN_INVALID);
 	assert(e != BN_INVALID);
@@ -1096,30 +1133,163 @@ void bn_mod_pow(struct bn *a, const struct bn *e, const struct bn *m)
 	if (bn_is_zero(a))
 		return;
 
-	/* If e is 0, return 1. */
-	if (bn_is_zero(e)) {
-		bn_zero(a);
-		bn_push_back(a, 1);
-		return;
-	}
+	ctx = bn_ctx_mont_new(m);
+	bn_to_mont(ctx, a);
+	bn_mod_pow_mont(ctx, a, e);
+	bn_from_mont(ctx, a);
+	bn_ctx_mont_free(ctx);
+}
 
-	nbits = bn_msb(e) + 1;
+/*
+ * http://www.math.vt.edu/people/brown/class_homepages/shanks_tonelli.pdf
+ *
+ * Tonelli-Shanks. m must be an odd prime, and gcd(a,m) == 1. The second
+ * condition applies when a is an element of the prime field defined over m,
+ * the only usecase for this function at the moment.
+ */
+void bn_mod_sqrt(struct bn *a, const struct bn *m)	/* m == modulus. */
+{
+	int bits, i, r, found;
+	struct bn *exp, *t, *s, *q, *one, *ma;
+	struct bn *x, *b, *g;
+	struct bn_ctx_mont *ctx;
+
+	assert(a->neg == 0);
+	assert(m->neg == 0);
+
+	one = bn_new_from_int(1);
+
 	ctx = bn_ctx_mont_new(m);
 
+	/* Convert a into Montgomery form. */
 	bn_to_mont(ctx, a);
-	pow = bn_new_copy(ctx->one);
-	for (i = 0; i < nbits; ++i) {
-		if (bn_test_bit(e, i))
-			bn_mul_mont(ctx, pow, a);
-		if (i < nbits - 1)
-			bn_mul_mont(ctx, a, a);
+	ma = bn_new_copy(a);
+
+	/* First: Euler's criterion to check if the sqrt exists. */
+	exp = bn_new_copy(m);
+	bn_sub(exp, one);
+	s = bn_new_copy(exp);	/* s = m - 1 */
+	bn_shr(exp, 1);		/* exp = (m - 1) / 2 */
+
+	bn_mod_pow_mont(ctx, a, exp);
+	/* The result is not 1. Hence, sqrt does not exist. */
+	if (bn_cmp_abs(a, ctx->one))
+		assert(0);
+
+	/* Find s*2^e = m - 1 */
+	bits = 0;
+	for (;;) {
+		if (!bn_is_even(s))
+			break;
+		++bits;
+		bn_shr(s, 1);
 	}
-	bn_from_mont(ctx, pow);
+	assert(bits > 0);
+
+	/* Find q such that q^((m - 1) / 2)) === -1 mod p. */
+	found = 0;
+	q = bn_new_copy(ctx->one);
+	bn_add(q, q);	/* q starts at 2. */
+	for (;;) {
+		/* TODO overflow. */
+
+		/* The result should not be 0. */
+		t = bn_new_copy(q);
+
+		bn_mod_pow_mont(ctx, t, exp);
+		/* The result is either 1 or -1 mod p. */
+
+		/* Found -1 mod p, a non-square. */
+		if (bn_cmp_abs(t, ctx->one))
+			found = 1;
+		bn_free(t);
+		if (found)
+			break;
+		bn_add(q, ctx->one);
+	}
+	bn_free(exp);
+
+	/* Initialize x, b, r, g. All in Montgomery form. */
+	b = bn_new_copy(ma);
+	x = bn_new_copy(ma);
+	g = bn_new_copy(q);
+
+	r = bits;
+	bn_mod_pow_mont(ctx, b, s);
+	bn_mod_pow_mont(ctx, g, s);
+	bn_add(s, one);
+	bn_shr(s, 1);	/* (s + 1) / 2 */
+	bn_mod_pow_mont(ctx, x, s);
+
+	bn_free(s);
+	bn_free(ma);
+	bn_free(q);
+
+	for (;;) {
+		/* Find least integer i such that b^(2^i) === 1 mod m. */
+		found = 0;
+		exp = bn_new_copy(one);
+		for (i = 0; i < r; ++i) {
+			t = bn_new_copy(b);
+			bn_mod_pow_mont(ctx, t, exp);
+			if (!bn_cmp_abs(t, ctx->one))
+				found = 1;
+			bn_free(t);
+			if (found)
+				break;
+			bn_shl(exp, 1);
+		}
+		bn_free(exp);
+		assert(found);
+		if (i == 0)
+			break;
+
+		/* x = x * g^(2^(r-i-1)) */
+		exp = bn_new_copy(one);
+		bn_shl(exp, r - i - 1);
+		t = bn_new_copy(g);
+		bn_mod_pow_mont(ctx, t, exp);
+		bn_mul_mont(ctx, x, t);
+		bn_free(t);
+
+		/* b = b * g^(2^(r-i)) */
+		exp = bn_new_copy(one);
+		bn_shl(exp, 1);
+		t = bn_new_copy(g);
+		bn_mod_pow_mont(ctx, t, exp);
+		bn_mul_mont(ctx, b, t);
+		bn_free(t);
+
+		/* g =  g^(2^(r-i)) */
+		bn_mod_pow_mont(ctx, g, exp);
+		bn_free(exp);
+
+		r = i;
+	}
+
+	bn_free(b);
+	bn_free(g);
+	bn_free(one);
+
+	bn_from_mont(ctx, x);
 	bn_ctx_mont_free(ctx);
+
 	bn_zero(a);
-	*a = *pow;
-	free(pow);
+	*a = *x;
+	free(x);
 }
+
+
+
+
+
+
+
+
+
+
+
+
 
 #define PRIME_TEST_LIMIT 1000000
 
