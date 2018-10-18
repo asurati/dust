@@ -11,13 +11,8 @@
 
 int main()
 {
-	struct bn *a, *m, *t;
 	struct ec *ec;
 	struct ec_mont_params emp;
-	const char *gy0 =
-	"20ae19a1b8a086b4e01edd2c7748d14c923d4d7e6d7c61b229e9c5a27eced3d9";
-	const char *gy1 =
-	"5f51e65e475f794b1fe122d388b72eb36dc2b28192839e4dd6163a5d81312c14";
 
 	emp.prime ="7fffffffffffffff ffffffffffffffff ffffffffffffffff"
 		"ffffffffffffffed";
@@ -29,79 +24,8 @@ int main()
 
 	/* Test. */
 	ec = ec_new_montgomery(&emp);
+	ec_gen_pair(ec);
 	ec_free(ec);
 
-	/* 25981c8 = Curve25519(x=9), */
-	a = bn_new_from_string("25981c8", 16); // 39420360
-	m = bn_new_from_string(emp.prime, 16);
-
-	/* Two roots. Should be the same as gy0 and gy1 defined above. */
-	bn_mod_sqrt(a, m);
-	bn_print("sqrt: ", a);
-	t = bn_new_copy(m);
-	bn_sub(t, a);
-	bn_print("sqrt: ", t);
-	bn_free(a);
-	bn_free(t);
-
-	/* Verify gy0 and gy1 are the roots. */
-	a = bn_new_from_string(gy0, 16);
-	bn_mul(a, a);
-	bn_mod(a, m);
-	bn_print("sqr: ", a);
-	bn_free(a);
-
-	a = bn_new_from_string(gy1, 16);
-	bn_mul(a, a);
-	bn_mod(a, m);
-	bn_print("sqr: ", a);
-	bn_free(a);
 	return 0;
 }
-
-#if 0
-const char *prime =
-"FFFFFFFF 00000001 00000000 00000000 00000000 FFFFFFFF FFFFFFFF FFFFFFFF";
-const char *coeff_a =
-"FFFFFFFF 00000001 00000000 00000000 00000000 FFFFFFFF FFFFFFFF FFFFFFFC";
-const char *coeff_b =
-"5AC635D8 AA3A93E7 B3EBBD55 769886BC 651D06B0 CC53B0F6 3BCE3C3E 27D2604B";
-const char *gen_x =
-"6B17D1F2 E12C4247 F8BCE6E5 63A440F2 77037D81 2DEB33A0 F4A13945 D898C296";
-const char *gen_y =
-"4FE342E2 FE1A7F9B 8EE7EB4A 7C0F9E16 2BCE3357 6B315ECE CBB64068 37BF51F5";
-
-int main()
-{
-	struct bn *p, *ca, *cb, *gx, *gy, *t;
-	p  = bn_new_from_string(prime, 16);
-	ca = bn_new_from_string(coeff_a, 16);
-	cb = bn_new_from_string(coeff_b, 16);
-	gx = bn_new_from_string(gen_x, 16);
-	gy = bn_new_from_string(gen_y, 16);
-
-	t = bn_new_from_string("2", 16);
-	bn_mod_pow(gy, t, p);	/* y^2 mod p */
-	bn_free(t);
-
-	bn_mul(ca, gx);	/* ax. */
-	bn_add(ca, cb);	/* ax + b. */
-
-	t = bn_new_from_string("3", 16);
-	bn_mod_pow(gx, t, p);	/* x^3 mod p */
-	bn_free(t);
-
-	bn_add(gx, ca);	/* x^3 + ax + b. */
-	bn_mod(gx, p);	/* (x^3 + ax + b) mod p. */
-
-	bn_sub(gy, gx);	/* (y^2 - (x^3 + ax + b)) mod p. */
-	bn_print("E(gx,gy): ", gy);
-
-	bn_free(p);
-	bn_free(ca);
-	bn_free(cb);
-	bn_free(gx);
-	bn_free(gy);
-	return 0;
-}
-#endif

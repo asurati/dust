@@ -27,6 +27,7 @@ struct ec_mont {
 	struct bn *a;
 	struct bn *b;
 	struct bn *order;
+	struct bn *cnst;	/* (a + 2) / 4 */
 	struct ec_point gen;
 	struct bn_ctx_mont *mctx;
 };
