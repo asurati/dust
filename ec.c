@@ -11,6 +11,12 @@
 
 #include <sys/ec.h>
 
+static void ec_mont_point_print(const struct ec_point *a)
+{
+	bn_print("x:", a->x);
+	bn_print("z:", a->z);
+}
+
 static void ec_mont_point_free(struct ec_point *a)
 {
 	bn_free(a->x);
@@ -239,6 +245,24 @@ static void ec_mont_scale(const struct ec_mont *ecm, struct ec_point *a,
 	free(pt[1]);
 }
 
+static void ec_mont_point_normalize(const struct ec_mont *ecm,
+				    struct ec_point *a)
+{
+	/* Montgomery modular inverse. For now convert and calculate. */
+	bn_from_mont(ecm->mctx, a->x);
+	bn_from_mont(ecm->mctx, a->z);
+
+	bn_mod_inv(a->z, ecm->prime);
+	bn_mul(a->x, a->z);
+	bn_mod(a->x, ecm->prime);
+
+	bn_free(a->z);
+	a->z = bn_new_from_string("1", 16);
+
+//	bn_to_mont(ecm->mctx, a->x);
+//	bn_to_mont(ecm->mctx, a->z);
+}
+
 struct ec_point *ec_mont_gen_pair(const struct ec_mont *ecm, struct bn **priv)
 {
 	int nbits, nbytes;
@@ -260,12 +284,11 @@ struct ec_point *ec_mont_gen_pair(const struct ec_mont *ecm, struct bn **priv)
 			break;
 		bn_free(t);
 	}
+	bn_free(t);
+	t = bn_new_from_string("a8a7bad8caac33aa82cdc709a3ba4dfdde00890d581daff3b33be68f955e1c60", 16);
 	*priv = t;
-	bn_print("d:", t);
 	pub = ec_mont_point_new_copy(&ecm->gen);
 	ec_mont_scale(ecm, pub, t);
-	bn_print("x:", pub->x);
-	bn_print("z:", pub->z);
 	return pub;
 }
 
@@ -279,7 +302,31 @@ struct ec_point *ec_mont_gen_pair(const struct ec_mont *ecm, struct bn **priv)
 
 
 
+void ec_point_normalize(const struct ec *ec, struct ec_point *a)
+{
+	assert(ec != EC_INVALID);
+	assert(a != EC_POINT_INVALID);
+	switch (ec->form) {
+	case ECF_MONTGOMERY:
+		ec_mont_point_normalize(&ec->u.mont, a);
+		break;
+	default:
+		assert(0);
+	}
+}
 
+void ec_point_print(const struct ec *ec, const struct ec_point *a)
+{
+	assert(ec != EC_INVALID);
+	assert(a != EC_POINT_INVALID);
+	switch (ec->form) {
+	case ECF_MONTGOMERY:
+		ec_mont_point_print(a);
+		break;
+	default:
+		assert(0);
+	}
+}
 
 void ec_point_free(const struct ec *ec, struct ec_point *a)
 {

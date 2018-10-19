@@ -30,6 +30,8 @@ void		 ec_free(struct ec *ec);
 struct ec_point	*ec_point_new_copy(const struct ec *ec,
 		 const struct ec_point *a);
 void		 ec_point_free(const struct ec *ec, struct ec_point *a);
+void		 ec_point_print(const struct ec *ec, const struct ec_point *a);
+void		 ec_point_normalize(const struct ec *ec, struct ec_point *a);
 
 void		 ec_scale(const struct ec *ec, struct ec_point *a,
 		 const struct bn *b);
