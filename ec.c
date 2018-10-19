@@ -11,6 +11,23 @@
 
 #include <sys/ec.h>
 
+static void ec_mont_point_free(struct ec_point *a)
+{
+	bn_free(a->x);
+	bn_free(a->z);
+	free(a);
+}
+
+static struct ec_point *ec_mont_point_new_copy(const struct ec_point *a)
+{
+	struct ec_point *b;
+	b = malloc(sizeof(*b));
+	assert(b);
+	b->x = bn_new_copy(a->x);
+	b->z = bn_new_copy(a->z);
+	return b;
+}
+
 static void ec_mont_free(struct ec_mont *ecm)
 {
 	if (ecm->prime != BN_INVALID)
@@ -105,17 +122,129 @@ err0:
 }
 
 /* All co-ordinates in projective, Montgomery form. */
-/*
+
+/* http://hyperelliptic.org/EFD/g1p/auto-montgom-xz.html */
 static void ec_mont_dbl(const struct ec_mont *ecm, struct ec_point *a)
 {
-}
-*/
+	struct bn *t[4];
 
-struct ec_point *ec_mont_gen_pair(const struct ec_mont *ecm)
+	t[0] = bn_new_copy(a->x);
+	bn_add_mont(ecm->mctx, t[0], a->z);
+	bn_mul_mont(ecm->mctx, t[0], t[0]);	/* (x + z)^2 */
+
+	t[1] = bn_new_copy(a->x);
+	bn_sub_mont(ecm->mctx, t[1], a->z);
+	bn_mul_mont(ecm->mctx, t[1], t[1]);	/* (x - z)^2 */
+
+	t[2] = bn_new_copy(t[0]);
+	bn_sub_mont(ecm->mctx, t[2], t[1]);	/* diff of sqr */
+
+	bn_mul_mont(ecm->mctx, t[0], t[1]);	/* mul of sqr */
+
+	t[3] = bn_new_copy(t[2]);
+	bn_mul_mont(ecm->mctx, t[3], ecm->cnst);
+	bn_add_mont(ecm->mctx, t[3], t[1]);
+	bn_mul_mont(ecm->mctx, t[3], t[2]);
+
+	bn_free(a->x);
+	bn_free(a->z);
+	bn_free(t[1]);
+	bn_free(t[2]);
+
+	a->x = t[0];
+	a->z = t[3];
+}
+
+/* All co-ordinates in projective, Montgomery form. */
+
+/*
+ * http://hyperelliptic.org/EFD/g1p/auto-montgom-xz.html
+ * diffadd-dadd-1987-m-3
+ */
+static void ec_mont_diffadd(const struct ec_mont *ecm, struct ec_point *a,
+			    const struct ec_point *b, const struct ec_point *c)
+{
+	struct bn *t[8];
+
+	t[0] = bn_new_copy(b->x);
+	bn_add_mont(ecm->mctx, t[0], b->z);
+	t[1] = bn_new_copy(b->x);
+	bn_sub_mont(ecm->mctx, t[1], b->z);
+
+	t[2] = bn_new_copy(c->x);
+	bn_add_mont(ecm->mctx, t[2], c->z);
+	t[3] = bn_new_copy(c->x);
+	bn_sub_mont(ecm->mctx, t[3], c->z);
+
+	bn_mul_mont(ecm->mctx, t[3], t[0]);
+	bn_mul_mont(ecm->mctx, t[2], t[1]);
+
+	t[4] = bn_new_copy(t[3]);
+	bn_add_mont(ecm->mctx, t[4], t[2]);
+	bn_mul_mont(ecm->mctx, t[4], t[4]);
+	t[5] = bn_new_copy(t[3]);
+	bn_sub_mont(ecm->mctx, t[5], t[2]);
+	bn_mul_mont(ecm->mctx, t[5], t[4]);
+
+	bn_mul_mont(ecm->mctx, t[4], a->z);
+	bn_mul_mont(ecm->mctx, t[5], a->x);
+
+	bn_free(a->x);
+	bn_free(a->z);
+	bn_free(t[0]);
+	bn_free(t[1]);
+	bn_free(t[2]);
+	bn_free(t[3]);
+
+	a->x = t[4];
+	a->z = t[5];
+}
+
+/* All co-ordinates in projective, Montgomery form. */
+/* http://cage.ugent.be/waifi/talks/Farashahi.pdf */
+static void ec_mont_scale(const struct ec_mont *ecm, struct ec_point *a,
+			  const struct bn *b)
+{
+	int i, msb;
+	struct ec_point *pt[4];
+
+	pt[0] = ec_mont_point_new_copy(a);
+	pt[1] = ec_mont_point_new_copy(a);
+	pt[2] = ec_mont_point_new_copy(a);
+
+	ec_mont_dbl(ecm, pt[2]);
+	msb = bn_msb(b);
+
+	for (i = msb - 1; i >= 0; --i) {
+		pt[3] = ec_mont_point_new_copy(pt[0]);
+		if (bn_test_bit(b, i) == 0) {
+			ec_mont_dbl(ecm, pt[1]);
+			ec_mont_diffadd(ecm, pt[3], pt[1], pt[2]);
+			ec_mont_point_free(pt[2]);
+			pt[2] = pt[3];
+		} else {
+			ec_mont_dbl(ecm, pt[2]);
+			ec_mont_diffadd(ecm, pt[3], pt[2], pt[1]);
+			ec_mont_point_free(pt[1]);
+			pt[1] = pt[3];
+		}
+	}
+	ec_mont_point_free(pt[0]);
+	ec_mont_point_free(pt[2]);
+	bn_free(a->x);
+	bn_free(a->z);
+
+	a->x = pt[1]->x;
+	a->z = pt[1]->z;
+	free(pt[1]);
+}
+
+struct ec_point *ec_mont_gen_pair(const struct ec_mont *ecm, struct bn **priv)
 {
 	int nbits, nbytes;
 	uint8_t *bytes;
 	struct bn *t;
+	struct ec_point *pub;
 
 	nbits = bn_msb(ecm->prime) + 1;
 	nbytes = (nbits + 7) >> 3;
@@ -129,9 +258,15 @@ struct ec_point *ec_mont_gen_pair(const struct ec_mont *ecm)
 		/* TODO check for zero. */
 		if (bn_cmp_abs(t, ecm->prime) < 0)
 			break;
+		bn_free(t);
 	}
+	*priv = t;
 	bn_print("d:", t);
-	exit(0);
+	pub = ec_mont_point_new_copy(&ecm->gen);
+	ec_mont_scale(ecm, pub, t);
+	bn_print("x:", pub->x);
+	bn_print("z:", pub->z);
+	return pub;
 }
 
 
@@ -140,13 +275,62 @@ struct ec_point *ec_mont_gen_pair(const struct ec_mont *ecm)
 
 
 
-struct ec_point *ec_gen_pair(const struct ec *ec)
+
+
+
+
+
+
+void ec_point_free(const struct ec *ec, struct ec_point *a)
 {
 	assert(ec != EC_INVALID);
+	assert(a != EC_POINT_INVALID);
+	switch (ec->form) {
+	case ECF_MONTGOMERY:
+		ec_mont_point_free(a);
+		break;
+	default:
+		assert(0);
+	}
+}
+
+struct ec_point *ec_point_new_copy(const struct ec *ec,
+				   const struct ec_point *a)
+{
+	assert(ec != EC_INVALID);
+	assert(a != EC_POINT_INVALID);
+	switch (ec->form) {
+	case ECF_MONTGOMERY:
+		return ec_mont_point_new_copy(a);
+		break;
+	default:
+		assert(0);
+	}
+	return EC_POINT_INVALID;
+}
+
+void ec_scale(const struct ec *ec, struct ec_point *a, const struct bn *b)
+{
+	assert(ec != EC_INVALID);
+	assert(b != BN_INVALID);
+	switch (ec->form) {
+	case ECF_MONTGOMERY:
+		ec_mont_scale(&ec->u.mont, a, b);
+		break;
+	default:
+		assert(0);
+	}
+}
+
+struct ec_point *ec_gen_pair(const struct ec *ec, struct bn **priv)
+{
+	assert(ec != EC_INVALID);
+	assert(priv);
+	assert(*priv == BN_INVALID);
 
 	switch (ec->form) {
 	case ECF_MONTGOMERY:
-		return ec_mont_gen_pair(&ec->u.mont);
+		return ec_mont_gen_pair(&ec->u.mont, priv);
 	default:
 		assert(0);
 	}

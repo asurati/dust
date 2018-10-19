@@ -12,6 +12,8 @@
 int main()
 {
 	struct ec *ec;
+	struct bn *priv;
+	struct ec_point *pub;
 	struct ec_mont_params emp;
 
 	emp.prime ="7fffffffffffffff ffffffffffffffff ffffffffffffffff"
@@ -24,7 +26,10 @@ int main()
 
 	/* Test. */
 	ec = ec_new_montgomery(&emp);
-	ec_gen_pair(ec);
+	priv = BN_INVALID;
+	pub = ec_gen_pair(ec, &priv);
+	ec_point_free(ec, pub);
+	bn_free(priv);
 	ec_free(ec);
 
 	return 0;

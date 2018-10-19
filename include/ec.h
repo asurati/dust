@@ -26,7 +26,14 @@ struct ec_mont_params {
 
 struct ec	*ec_new_montgomery(const struct ec_mont_params *p);
 void		 ec_free(struct ec *ec);
-struct ec_point	*ec_gen_pair(const struct ec *ec);
+
+struct ec_point	*ec_point_new_copy(const struct ec *ec,
+		 const struct ec_point *a);
+void		 ec_point_free(const struct ec *ec, struct ec_point *a);
+
+void		 ec_scale(const struct ec *ec, struct ec_point *a,
+		 const struct bn *b);
+struct ec_point	*ec_gen_pair(const struct ec *ec, struct bn **priv);
 void		 ec_gen_shared(const struct ec *ec, const struct bn *priv,
 		 struct ec_point *pub);
 #endif
