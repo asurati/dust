@@ -28,6 +28,7 @@ void		 bn_gcd(struct bn *a, const struct bn *b);
 int		 bn_msb(const struct bn *a);
 
 int		 bn_cmp_abs(const struct bn *a, const struct bn *b);
+char		 bn_test_bit(const struct bn *a, int bit);
 char		 bn_mod_inv(struct bn *a, const struct bn *m);
 void		 bn_mod_pow(struct bn *a, const struct bn *e,
 		 const struct bn *m);
@@ -49,6 +50,10 @@ struct bn_ctx_mont
 void		 bn_ctx_mont_free(struct bn_ctx_mont *ctx);
 void		 bn_to_mont(const struct bn_ctx_mont *ctx, struct bn *b);
 void		 bn_from_mont(const struct bn_ctx_mont *ctx, struct bn *b);
+void		 bn_add_mont(const struct bn_ctx_mont *ctx, struct bn *a,
+		 const struct bn *b);
+void		 bn_sub_mont(const struct bn_ctx_mont *ctx, struct bn *a,
+		 const struct bn *b);
 void		 bn_mul_mont(const struct bn_ctx_mont *ctx, struct bn *a,
 		 const struct bn *b);
 void		 bn_mod_pow_mont(const struct bn_ctx_mont *ctx, struct bn *a,

@@ -35,7 +35,7 @@ static void bn_nsig_invariant(const struct bn *b)
 }
 
 /* TODO check validity of the bit input. */
-static char bn_test_bit(const struct bn *b, int bit)
+char bn_test_bit(const struct bn *b, int bit)
 {
 	int l;
 
@@ -1065,6 +1065,39 @@ void bn_from_mont(const struct bn_ctx_mont *ctx, struct bn *b)
 		return;
 	bn_mul(b, ctx->rinv);
 	bn_mod(b, ctx->m);
+}
+
+/* a and b are in Montgomery form. */
+void bn_sub_mont(const struct bn_ctx_mont *ctx, struct bn *a,
+		 const struct bn *b)
+{
+	assert(a->neg == 0);
+	assert(b->neg == 0);
+	assert(bn_cmp_abs(a, ctx->m) < 0);
+	assert(bn_cmp_abs(b, ctx->m) < 0);
+
+	bn_sub(a, b);
+	bn_and(a, ctx->mask);
+	if (a->neg)
+		bn_add(a, ctx->m);
+	assert(a->neg == 0);
+	assert(bn_cmp_abs(a, ctx->m) < 0);
+}
+
+/* a and b are in Montgomery form. */
+void bn_add_mont(const struct bn_ctx_mont *ctx, struct bn *a,
+		 const struct bn *b)
+{
+	assert(a->neg == 0);
+	assert(b->neg == 0);
+	assert(bn_cmp_abs(a, ctx->m) < 0);
+	assert(bn_cmp_abs(b, ctx->m) < 0);
+
+	bn_add(a, b);
+	bn_and(a, ctx->mask);
+	if (bn_cmp_abs(a, ctx->m) >= 0)
+		bn_sub(a, ctx->m);
+	assert(bn_cmp_abs(a, ctx->m) < 0);
 }
 
 /* a and b are in Montgomery form. */
