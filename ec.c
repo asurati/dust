@@ -287,30 +287,12 @@ static void ec_mont_scale(const struct ec_mont *ecm, struct ec_point *a,
 	ec_mont_point_normalize(ecm, a);
 }
 
-struct ec_point *ec_mont_gen_pair(const struct ec_mont *ecm, struct bn **priv)
+struct ec_point *ec_mont_gen_public(const struct ec_mont *ecm,
+				    const struct bn *priv)
 {
-	int nbits, nbytes;
-	uint8_t *bytes;
-	struct bn *t;
 	struct ec_point *pub;
-
-	nbits = bn_msb(ecm->prime) + 1;
-	nbytes = (nbits + 7) >> 3;
-	bytes = malloc(nbytes);
-	assert(bytes);
-
-	/* TODO more efficient way? */
-	for (;;) {
-		rndm_fill(bytes, nbits);
-		t = bn_new_from_bytes(bytes, nbytes);
-		/* TODO check for zero. */
-		if (bn_cmp_abs(t, ecm->prime) < 0)
-			break;
-		bn_free(t);
-	}
-	*priv = t;
 	pub = ec_mont_point_new_copy(&ecm->gen);
-	ec_mont_scale(ecm, pub, t);
+	ec_mont_scale(ecm, pub, priv);
 	return pub;
 }
 
@@ -378,15 +360,14 @@ void ec_scale(const struct ec *ec, struct ec_point *a, const struct bn *b)
 	}
 }
 
-struct ec_point *ec_gen_pair(const struct ec *ec, struct bn **priv)
+struct ec_point *ec_gen_public(const struct ec *ec, const struct bn *priv)
 {
 	assert(ec != EC_INVALID);
-	assert(priv);
-	assert(*priv == BN_INVALID);
+	assert(priv != BN_INVALID);
 
 	switch (ec->form) {
 	case ECF_MONTGOMERY:
-		return ec_mont_gen_pair(&ec->u.mont, priv);
+		return ec_mont_gen_public(&ec->u.mont, priv);
 	default:
 		assert(0);
 	}
