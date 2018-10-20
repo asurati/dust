@@ -96,7 +96,10 @@ static struct ec *ec_mont_new(const struct ec_mont_params *p)
 	t[3] = bn_new_from_string(p->gx, 16);
 	t[4] = bn_new_from_string("1", 16);
 	t[5] = bn_new_from_string(p->order, 16);
-	t[6] = bn_new_from_string(p->a, 16);
+	if (p->c4)
+		t[6] = bn_new_from_string(p->c4, 16);
+	else
+		t[6] = bn_new_from_string(p->a, 16);
 	t[7] = bn_new_from_string("2", 16);
 	t[8] = bn_new_from_string("4", 16);
 
@@ -108,7 +111,8 @@ static struct ec *ec_mont_new(const struct ec_mont_params *p)
 	if (ecm->mctx == NULL)
 		goto err1;
 
-	bn_add(t[6], t[7]);	/* a + 2 */
+	if (p->c4 == NULL)
+		bn_add(t[6], t[7]);	/* a + 2 */
 	bn_mod_inv(t[8], t[0]);	/* inv(4). */
 	bn_mul(t[6], t[8]);
 	bn_mod(t[6], t[0]);

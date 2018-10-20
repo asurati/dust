@@ -23,6 +23,7 @@ int main()
 	struct ec_point *pub[2];
 	struct ec_mont_params emp;
 
+	emp.c4 = NULL;
 	emp.prime = "7fffffffffffffff ffffffffffffffff ffffffffffffffff"
 		"ffffffffffffffed";
 	emp.a = "76d06";	// hex(486662)

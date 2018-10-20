@@ -22,6 +22,7 @@ struct ec_mont_params {
 	const char *b;
 	const char *gx;	/* Use projective coordinates with Z = 1. */
 	const char *order;	/* Order of the base/gen point. */
+	const char *c4;	/* constant * 4. a+2, but x25519 uses a-2. */
 };
 
 struct ec	*ec_new_montgomery(const struct ec_mont_params *p);
