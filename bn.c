@@ -1077,9 +1077,10 @@ void bn_sub_mont(const struct bn_ctx_mont *ctx, struct bn *a,
 	assert(bn_cmp_abs(b, ctx->m) < 0);
 
 	bn_sub(a, b);
-	bn_and(a, ctx->mask);
 	if (a->neg)
 		bn_add(a, ctx->m);
+	else
+		bn_mod(a, ctx->m);
 	assert(a->neg == 0);
 	assert(bn_cmp_abs(a, ctx->m) < 0);
 }
@@ -1094,10 +1095,7 @@ void bn_add_mont(const struct bn_ctx_mont *ctx, struct bn *a,
 	assert(bn_cmp_abs(b, ctx->m) < 0);
 
 	bn_add(a, b);
-	bn_and(a, ctx->mask);
-	if (bn_cmp_abs(a, ctx->m) >= 0)
-		bn_sub(a, ctx->m);
-	assert(bn_cmp_abs(a, ctx->m) < 0);
+	bn_mod(a, ctx->m);
 }
 
 /* a and b are in Montgomery form. */
@@ -1386,6 +1384,8 @@ struct bn *bn_new_prob_prime(int nbits)
 		for (i = 0; i < nprimes && comp == 0; ++i) {
 			rem = BN_INVALID;
 			a->l[0] = primes[i];
+			if (bn_cmp_abs(t, a) >= 0)
+				break;
 
 			/* bn_div does not change the allocation of t->l .*/
 			bn_div(t, a, &rem);
