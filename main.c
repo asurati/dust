@@ -5,25 +5,17 @@
  */
 
 #include <assert.h>
+#include <stdio.h>
 
 #include <bn.h>
 #include <ec.h>
 
-/*
-[u0@arch ~]$ openssl genpkey -algorithm x25519 -text
------BEGIN PRIVATE KEY-----
-MC4CAQAwBQYDK2VuBCIEIKinutjKrDOqgs3HCaO6Tf3eAIkNWB2v87M75o+VXhxg
------END PRIVATE KEY-----
-X25519 Private-Key:
-priv:
-    a8:a7:ba:d8:ca:ac:33:aa:82:cd:c7:09:a3:ba:4d:
-    fd:de:00:89:0d:58:1d:af:f3:b3:3b:e6:8f:95:5e:
-    1c:60
-pub:
-    0c:8e:b1:04:fe:d8:76:2b:81:7c:98:17:42:60:11:
-    b6:16:5f:fd:7e:c4:8c:49:5b:6e:c3:c5:2c:71:e0:
-    0e:3c
-*/
+// 3y^2=x^3 + 5x^2 + x mod 65537
+// (3,5) on the curve.
+
+// y^2=x^3 + 5x^2 + x mod eaad
+// (4,0x94) on the curve
+
 int main()
 {
 	struct ec *ec;
@@ -31,9 +23,9 @@ int main()
 	struct ec_point *pub[2];
 	struct ec_mont_params emp;
 
-	emp.prime ="7fffffffffffffff ffffffffffffffff ffffffffffffffff"
+	emp.prime = "7fffffffffffffff ffffffffffffffff ffffffffffffffff"
 		"ffffffffffffffed";
-	emp.a = "76d06";	/* hex(486662). */
+	emp.a = "76d06";	// hex(486662)
 	emp.b = "1";
 	emp.gx = "9";
 	emp.order = "1000000000000000 0000000000000000 14def9dea2f79cd6"
@@ -45,16 +37,17 @@ int main()
 	priv[1] = BN_INVALID;
 
 	pub[0] = ec_gen_pair(ec, &priv[0]);
-	bn_print("priv:", priv[0]);
+	bn_print("priv0:", priv[0]);
 	ec_point_print(ec, pub[0]);
-	ec_point_normalize(ec, pub[0]);
-	ec_point_print(ec, pub[0]);
-	exit(0);
 
 	pub[1] = ec_gen_pair(ec, &priv[1]);
+	bn_print("priv1:", priv[1]);
+	ec_point_print(ec, pub[1]);
 
-	ec_scale(ec, pub[1], priv[0]);
+	printf("----------\n");
+
 	ec_scale(ec, pub[0], priv[1]);
+	ec_scale(ec, pub[1], priv[0]);
 
 	ec_point_print(ec, pub[0]);
 	ec_point_print(ec, pub[1]);
@@ -64,6 +57,5 @@ int main()
 	bn_free(priv[0]);
 	bn_free(priv[1]);
 	ec_free(ec);
-
 	return 0;
 }
