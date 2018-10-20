@@ -11,10 +11,21 @@
 
 #include <sys/ec.h>
 
-static void ec_mont_point_print(const struct ec_point *a)
+static void ec_mont_point_print(const struct ec_mont *ecm,
+				const struct ec_point *a)
 {
-	bn_print("x:", a->x);
-	bn_print("z:", a->z);
+	struct bn *t;
+
+	/* Convert to normal for printing. */
+	t = bn_new_copy(a->x);
+	bn_from_mont(ecm->mctx, t);
+	bn_print("x:", t);
+	bn_free(t);
+
+	t = bn_new_copy(a->z);
+	bn_from_mont(ecm->mctx, t);
+	bn_print("z:", t);
+	bn_free(t);
 }
 
 static void ec_mont_point_free(struct ec_point *a)
@@ -100,6 +111,8 @@ static struct ec *ec_mont_new(const struct ec_mont_params *p)
 	bn_add(t[6], t[7]);	/* a + 2 */
 	bn_mod_inv(t[8], t[0]);	/* inv(4). */
 	bn_mul(t[6], t[8]);
+	bn_mod(t[6], t[0]);
+
 	bn_free(t[7]);
 	bn_free(t[8]);
 
@@ -190,7 +203,7 @@ static void ec_mont_diffadd(const struct ec_mont *ecm, struct ec_point *a,
 	bn_mul_mont(ecm->mctx, t[4], t[4]);
 	t[5] = bn_new_copy(t[3]);
 	bn_sub_mont(ecm->mctx, t[5], t[2]);
-	bn_mul_mont(ecm->mctx, t[5], t[4]);
+	bn_mul_mont(ecm->mctx, t[5], t[5]);
 
 	bn_mul_mont(ecm->mctx, t[4], a->z);
 	bn_mul_mont(ecm->mctx, t[5], a->x);
@@ -206,61 +219,68 @@ static void ec_mont_diffadd(const struct ec_mont *ecm, struct ec_point *a,
 	a->z = t[5];
 }
 
-/* All co-ordinates in projective, Montgomery form. */
-/* http://cage.ugent.be/waifi/talks/Farashahi.pdf */
-static void ec_mont_scale(const struct ec_mont *ecm, struct ec_point *a,
-			  const struct bn *b)
-{
-	int i, msb;
-	struct ec_point *pt[4];
-
-	pt[0] = ec_mont_point_new_copy(a);
-	pt[1] = ec_mont_point_new_copy(a);
-	pt[2] = ec_mont_point_new_copy(a);
-
-	ec_mont_dbl(ecm, pt[2]);
-	msb = bn_msb(b);
-
-	for (i = msb - 1; i >= 0; --i) {
-		pt[3] = ec_mont_point_new_copy(pt[0]);
-		if (bn_test_bit(b, i) == 0) {
-			ec_mont_dbl(ecm, pt[1]);
-			ec_mont_diffadd(ecm, pt[3], pt[1], pt[2]);
-			ec_mont_point_free(pt[2]);
-			pt[2] = pt[3];
-		} else {
-			ec_mont_dbl(ecm, pt[2]);
-			ec_mont_diffadd(ecm, pt[3], pt[2], pt[1]);
-			ec_mont_point_free(pt[1]);
-			pt[1] = pt[3];
-		}
-	}
-	ec_mont_point_free(pt[0]);
-	ec_mont_point_free(pt[2]);
-	bn_free(a->x);
-	bn_free(a->z);
-
-	a->x = pt[1]->x;
-	a->z = pt[1]->z;
-	free(pt[1]);
-}
-
 static void ec_mont_point_normalize(const struct ec_mont *ecm,
 				    struct ec_point *a)
 {
-	/* Montgomery modular inverse. For now convert and calculate. */
+	/*
+	 * Montgomery modular inverse.
+	 * For now, convert to normal, calculate, and convert back to
+	 * Montgomery form.
+	 */
 	bn_from_mont(ecm->mctx, a->x);
 	bn_from_mont(ecm->mctx, a->z);
 
-	bn_mod_inv(a->z, ecm->prime);
+	/*
+	 * The inverse does not exist for a point with a->z == 0, or
+	 * the point of infinity.
+	 */
+	assert(bn_mod_inv(a->z, ecm->prime) == 1);
 	bn_mul(a->x, a->z);
 	bn_mod(a->x, ecm->prime);
 
 	bn_free(a->z);
 	a->z = bn_new_from_string("1", 16);
 
-//	bn_to_mont(ecm->mctx, a->x);
-//	bn_to_mont(ecm->mctx, a->z);
+	bn_to_mont(ecm->mctx, a->x);
+	bn_to_mont(ecm->mctx, a->z);
+}
+
+/* All co-ordinates in projective, Montgomery form. */
+/* http://cage.ugent.be/waifi/talks/Farashahi.pdf */
+static void ec_mont_scale(const struct ec_mont *ecm, struct ec_point *a,
+			  const struct bn *b)
+{
+	int i, msb;
+	struct ec_point *pt[3];
+
+	pt[0] = ec_mont_point_new_copy(a);
+	pt[1] = ec_mont_point_new_copy(a);
+
+	ec_mont_dbl(ecm, pt[1]);
+	msb = bn_msb(b);
+
+	for (i = msb - 1; i >= 0; --i) {
+		/* Difference between pt[0] and pt[1] is always == a. */
+		pt[2] = ec_mont_point_new_copy(a);
+		ec_mont_diffadd(ecm, pt[2], pt[0], pt[1]);
+		if (bn_test_bit(b, i) == 0) {
+			ec_mont_dbl(ecm, pt[0]);
+			ec_mont_point_free(pt[1]);
+			pt[1] = pt[2];
+		} else {
+			ec_mont_dbl(ecm, pt[1]);
+			ec_mont_point_free(pt[0]);
+			pt[0] = pt[2];
+		}
+	}
+	ec_mont_point_free(pt[1]);
+	bn_free(a->x);
+	bn_free(a->z);
+
+	a->x = pt[0]->x;
+	a->z = pt[0]->z;
+	free(pt[0]);
+	ec_mont_point_normalize(ecm, a);
 }
 
 struct ec_point *ec_mont_gen_pair(const struct ec_mont *ecm, struct bn **priv)
@@ -284,8 +304,6 @@ struct ec_point *ec_mont_gen_pair(const struct ec_mont *ecm, struct bn **priv)
 			break;
 		bn_free(t);
 	}
-	bn_free(t);
-	t = bn_new_from_string("a8a7bad8caac33aa82cdc709a3ba4dfdde00890d581daff3b33be68f955e1c60", 16);
 	*priv = t;
 	pub = ec_mont_point_new_copy(&ecm->gen);
 	ec_mont_scale(ecm, pub, t);
@@ -302,26 +320,13 @@ struct ec_point *ec_mont_gen_pair(const struct ec_mont *ecm, struct bn **priv)
 
 
 
-void ec_point_normalize(const struct ec *ec, struct ec_point *a)
-{
-	assert(ec != EC_INVALID);
-	assert(a != EC_POINT_INVALID);
-	switch (ec->form) {
-	case ECF_MONTGOMERY:
-		ec_mont_point_normalize(&ec->u.mont, a);
-		break;
-	default:
-		assert(0);
-	}
-}
-
 void ec_point_print(const struct ec *ec, const struct ec_point *a)
 {
 	assert(ec != EC_INVALID);
 	assert(a != EC_POINT_INVALID);
 	switch (ec->form) {
 	case ECF_MONTGOMERY:
-		ec_mont_point_print(a);
+		ec_mont_point_print(&ec->u.mont, a);
 		break;
 	default:
 		assert(0);
