@@ -25,7 +25,7 @@ struct bn	*bn_new_from_string(const char *str, int radix);
 struct bn	*bn_new_copy(const struct bn *b);
 struct bn	*bn_new_prob_prime(int nbits);
 
-void		 bn_free(struct bn *a);
+void		 bn_free(struct bn *b);
 
 int		 bn_is_zero(const struct bn *b);
 int		 bn_is_one(const struct bn *b);
@@ -50,8 +50,6 @@ void		 bn_mod_pow(struct bn *a, const struct bn *e,
 		 const struct bn *m);
 void		 bn_mod_sqrt(struct bn *a, const struct bn *m);
 
-
-void		 bn_free(struct bn *b);
 
 
 
