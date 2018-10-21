@@ -287,8 +287,8 @@ static void ec_mont_scale(const struct ec_mont *ecm, struct ec_point *a,
 	ec_mont_point_normalize(ecm, a);
 }
 
-struct ec_point *ec_mont_gen_public(const struct ec_mont *ecm,
-				    const struct bn *priv)
+static struct ec_point *ec_mont_gen_public(const struct ec_mont *ecm,
+					   const struct bn *priv)
 {
 	struct ec_point *pub;
 	pub = ec_mont_point_new_copy(&ecm->gen);
