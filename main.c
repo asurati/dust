@@ -6,10 +6,14 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <unistd.h>
+
+#include <arpa/inet.h>
 
 #include <bn.h>
 #include <rndm.h>
 #include <ec.h>
+#include <tls.h>
 
 // 3y^2=x^3 + 5x^2 + x mod 65537
 // (3,5) on the curve.
@@ -40,14 +44,33 @@ struct bn *bn_rand(const struct bn *m)
 	return t;
 }
 
+uint8_t buf[4096];
 int main()
+{
+	int sock, n;
+	struct sockaddr_in srvr = {0};
+
+	n = tls_fill_chello(buf, 4096);
+	printf("%d\n", n);
+
+	sock = socket(AF_INET, SOCK_STREAM, 0);
+	srvr.sin_family = AF_INET;
+	srvr.sin_port = htons(443);
+	inet_pton(AF_INET, "127.0.0.1", &srvr.sin_addr);
+	connect(sock, (const struct sockaddr *)&srvr, sizeof(srvr));
+	send(sock, buf, n, 0);
+	sleep(60000);
+	return 0;
+}
+
+int main2()
 {
 	struct ec *ec;
 	struct bn *priv[2], *prime;
 	struct ec_point *pub[2];
 	struct ec_mont_params emp;
 
-	/* Must be the first call. */
+	/* Must be the first call before any other bn/ec calls. */
 	bn_init();
 
 	emp.c4 = NULL;
