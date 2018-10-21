@@ -3,16 +3,16 @@
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
-
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
-#include <sys/limb.h>
+#include <sys/bn.h>
 
 /* 'Little Endian' storage - lowest significant limb at index 0. */
 
-limb_t limb_add(limb_t *a, int na, const limb_t *b, int nb)
+limb_t limb_add(struct limbs *a, int ia, int na, const struct limbs *b,
+		int ib, int nb)
 {
 	int i;
 	limb2_t r;
@@ -21,22 +21,20 @@ limb_t limb_add(limb_t *a, int na, const limb_t *b, int nb)
 	assert(nb >= 0);
 	assert(na >= nb);
 
-	if (nb == 0)
-		return 0;
-
 	r = 0;
 	for (i = 0; i < na; ++i) {
-		r += a[i];
+		r += a->l[i + ia];
 		if (i < nb)
-			r += b[i];
-		a[i] = r;
+			r += b->l[i + ib];
+		a->l[i + ia] = r;
 		r >>= LIMB_BITS;
 	}
 	assert(r == 0 || r == 1);
 	return r;
 }
 
-limb_t limb_sub(limb_t *a, int na, const limb_t *b, int nb)
+limb_t limb_sub(struct limbs *a, int ia, int na, const struct limbs *b,
+		int ib, int nb)
 {
 	int i;
 	limb2_t r;
@@ -48,19 +46,18 @@ limb_t limb_sub(limb_t *a, int na, const limb_t *b, int nb)
 	r = 0;
 	for (i = 0; i < na; ++i) {
 		/* r is the borrow: 0 or -1. */
-		r += a[i];
+		r += a->l[i + ia];
 		if (i < nb)
-			r -= b[i];
-		a[i] = r;
+			r -= b->l[i + ib];
+		a->l[i + ia] = r;
 		r = (slimb2_t)r >> LIMB_BITS;
 	}
 	assert(r == 0 || r == (limb2_t)-1);
 	return r;
 }
 
-void limb_and(limb_t *a, int na, const limb_t *b, int nb)
+void limb_and(struct limbs *a, int na, const struct limbs *b, int nb)
 {
-	limb_t r;
 	int i, mn;
 
 	assert(na >= 0);
@@ -70,15 +67,13 @@ void limb_and(limb_t *a, int na, const limb_t *b, int nb)
 
 	for (i = 0; i < na; ++i) {
 		if (i < mn)
-			r = a[i] & b[i];
+			a->l[i] &= b->l[i];
 		else
-			r = 0;
-
-		a[i] = r;
+			a->l[i] = 0;
 	}
 }
 
-int limb_cmp(const limb_t *a, int na, const limb_t *b, int nb)
+limb_t limb_cmp(const struct limbs *a, int na, const struct limbs *b, int nb)
 {
 	int diff, i;
 
@@ -87,13 +82,13 @@ int limb_cmp(const limb_t *a, int na, const limb_t *b, int nb)
 
 	/* Skip initial zeroes. */
 	for (i = na - 1; i >= 0; --i)
-		if (a[i])
+		if (a->l[i])
 			break;
 	na = i + 1;
 
 	/* Skip initial zeroes. */
 	for (i = nb - 1; i >= 0; --i)
-		if (b[i])
+		if (b->l[i])
 			break;
 	nb = i + 1;
 
@@ -102,15 +97,15 @@ int limb_cmp(const limb_t *a, int na, const limb_t *b, int nb)
 		return diff;
 
 	for (i = na - 1; i >= 0; --i) {
-		if (a[i] > b[i])
+		if (a->l[i] > b->l[i])
 			return 1;
-		else if (a[i] < b[i])
+		else if (a->l[i] < b->l[i])
 			return -1;
 	}
 	return 0;
 }
 
-limb_t limb_mul(limb_t *a, int na, limb_t b)
+limb_t limb_mul(struct limbs *a, int na, limb_t b)
 {
 	int i;
 	limb2_t r;
@@ -119,45 +114,45 @@ limb_t limb_mul(limb_t *a, int na, limb_t b)
 
 	r = 0;
 	for (i = 0; i < na; ++i) {
-		r += (limb2_t)a[i] * b;
-		a[i] = r;
+		r += (limb2_t)a->l[i] * b;
+		a->l[i] = r;
 		r >>= LIMB_BITS;
 	}
 	return r;
 }
 
 /* The function assumes space available. */
-void limb_shl(limb_t *a, int na_prev, int na_curr, int c)
+void limb_shl(struct limbs *a, int na_prev, int na_curr, int c)
 {
 	int i, ls;
 
 	ls = c >> LIMB_BITS_LOG;
 	c &= LIMB_BITS_MASK;
 
-	memset(a + na_prev, 0, (na_curr - na_prev) << LIMB_BYTES_LOG);
+	memset(a->l + na_prev, 0, (na_curr - na_prev) << LIMB_BYTES_LOG);
 
 	/* Perform full limb-wise shifts. */
-	memmove(a + ls, a, na_prev << LIMB_BYTES_LOG);
+	memmove(a->l + ls, a->l, na_prev << LIMB_BYTES_LOG);
 
 	/* Zero the least significant limbs. */
-	memset(a, 0, ls << LIMB_BYTES_LOG);
+	memset(a->l, 0, ls << LIMB_BYTES_LOG);
 
 	/* No sub-limb shifts necessary. */
 	if (c == 0)
 		return;
 
 	i = na_curr - 1;
-	a[i] <<= c;
+	a->l[i] <<= c;
 	for (--i; i >= ls; --i) {
 		/* Take the top c bits of [i] and paste them into the bottom
 		 * c bits of [i + 1]
 		 */
-		a[i + 1] |= a[i] >> (LIMB_BITS - c);
-		a[i] <<= c;
+		a->l[i + 1] |= a->l[i] >> (LIMB_BITS - c);
+		a->l[i] <<= c;
 	}
 }
 
-void limb_shr(limb_t *a, int na_prev, int na_curr, int c)
+void limb_shr(struct limbs *a, int na_prev, int na_curr, int c)
 {
 	int ls, i;
 
@@ -165,8 +160,8 @@ void limb_shr(limb_t *a, int na_prev, int na_curr, int c)
 	c &= LIMB_BITS_MASK;
 
 	/* Perform full limb-wise shifts. */
-	memmove(a, a + ls, (na_prev - ls) << LIMB_BYTES_LOG);
-	memset(a + na_prev - ls, 0, ls << LIMB_BYTES_LOG);
+	memmove(a->l, a->l + ls, (na_prev - ls) << LIMB_BYTES_LOG);
+	memset(a->l + na_prev - ls, 0, ls << LIMB_BYTES_LOG);
 
 	/* No sub-limb shifts necessary. */
 	if (c == 0)
@@ -178,12 +173,12 @@ void limb_shr(limb_t *a, int na_prev, int na_curr, int c)
 	 */
 	ls = na_prev == na_curr ? na_prev : na_curr + 1;
 	i = 0;
-	a[i] >>= c;
+	a->l[i] >>= c;
 	for (++i; i < ls; ++i) {
 		/* Take the bottom c bits of [i] and paste them into the top
 		 * c bits of [i - 1]
 		 */
-		a[i - 1] |= a[i] << (LIMB_BITS - c);
-		a[i] >>= c;
+		a->l[i - 1] |= a->l[i] << (LIMB_BITS - c);
+		a->l[i] >>= c;
 	}
 }

@@ -13,42 +13,254 @@
 #include <sys/types.h>
 
 #include <sys/bn.h>
-#include <sys/limb.h>
 #include <rndm.h>
 
-static char bn_is_one(const struct bn *b)
+static struct bn_pool *g_pool = BN_POOL_INVALID;
+
+static const int bn_nlimbs[NUM_LIMB_SIZES] = {
+	1,2,4,8,
+	16,32,64,128,
+	256,512,1024,2048
+};
+
+static const int limbs_nfree[NUM_LIMB_SIZES] = {
+	20,20,20,20,
+	30,20,10,10,
+	10,10,10,10
+};
+
+static struct bn_pool *bn_pool_new()
 {
-	assert(b != BN_INVALID);
-	return b->nsig == 1 && b->neg == 0 && b->l[0] == (limb_t)1;
+	int i, j, nlimbs, sz;
+	struct bn_pool *p;
+	struct bn *tbn;
+	struct limbs *tl;
+
+	p = malloc(sizeof(*p));
+	assert(p);
+
+	p->nfree_nums = 128;
+	init_list_head(&p->free_nums);
+	for (i = 0; i < 128; ++i) {
+		tbn = malloc(sizeof(*tbn));
+		assert(tbn);
+		list_add(&tbn->entry, &p->free_nums);
+	}
+
+	for (i = 0; i < NUM_LIMB_SIZES; ++i) {
+		init_list_head(&p->free_limbs[i]);
+		p->npeak_limbs[i] = 0;
+		p->nfree_limbs[i] = limbs_nfree[i];
+		nlimbs = bn_nlimbs[i];
+		sz = sizeof(*tl) + (nlimbs << LIMB_BYTES_LOG);
+		for (j = 0; j < limbs_nfree[i]; ++j) {
+			tl = malloc(sz);
+			tl->n = nlimbs;
+			assert(tl);
+			list_add(&tl->entry, &p->free_limbs[i]);
+		}
+	}
+	return p;
 }
 
-static char bn_is_zero(const struct bn *b)
+static void bn_pool_free(struct bn_pool *p)
+{
+	int i;
+	struct bn *tbn;
+	struct limbs *tl;
+	struct list_head *e;
+
+	assert(p->nfree_nums == 128);
+	while (!list_empty(&p->free_nums)) {
+		e = list_del_head(&p->free_nums);
+		tbn = to_bn(e);
+		free(tbn);
+	}
+
+	for (i = 0; i < NUM_LIMB_SIZES; ++i) {
+		// printf("peak[%d] = %d\n", bn_nlimbs[i], p->npeak_limbs[i]);
+		assert(p->nfree_limbs[i] == limbs_nfree[i]);
+		while (!list_empty(&p->free_limbs[i])) {
+			e = list_del_head(&p->free_limbs[i]);
+			tl = to_limbs(e);
+			assert(tl->n == bn_nlimbs[i]);
+			free(tl);
+		}
+	}
+	free(p);
+}
+
+static struct bn *bn_pool_get_bn(struct bn_pool *p)
+{
+	struct list_head *e;
+	struct bn *b;
+
+	assert(p->nfree_nums > 0 && p->nfree_nums <= 128);
+
+	--p->nfree_nums;
+	e = list_del_head(&p->free_nums);
+	b = to_bn(e);
+	b->nsig = b->neg = -1;
+	b->l = BN_LIMBS_INVALID;
+	return b;
+}
+
+static struct limbs *bn_pool_get_limbs(struct bn_pool *p, int n)
+{
+	int i, diff;
+	struct limbs *tl;
+	struct list_head *e;
+
+	assert(n >= 0);
+
+	if (n == 0)
+		return BN_LIMBS_INVALID;
+
+	/* XXX arch specific. */
+	asm volatile("bsr %1, %0\t\n" : "=r" (i) : "r" (n));
+	if ((1 << i) != n)
+		++i;
+
+	/*
+	for (i = 0; i < NUM_LIMB_SIZES; ++i)
+		if (bn_nlimbs[i] >= n)
+			break;
+			*/
+
+	assert(i < NUM_LIMB_SIZES);
+	assert(p->nfree_limbs[i] > 0 && p->nfree_limbs[i] <= limbs_nfree[i]);
+
+	--p->nfree_limbs[i];
+	e = list_del_head(&p->free_limbs[i]);
+	tl = to_limbs(e);
+	assert(tl->n == bn_nlimbs[i]);
+
+	diff = limbs_nfree[i] - p->nfree_limbs[i];
+	if (diff > p->npeak_limbs[i])
+		p->npeak_limbs[i] = diff;
+
+	memset(tl->l, -1, tl->n << LIMB_BYTES_LOG);
+	return tl;
+}
+
+static void bn_pool_put_limbs(struct bn_pool *p, struct limbs *tl)
+{
+	int i;
+
+	assert(tl != BN_LIMBS_INVALID);
+
+	/* XXX arch specific. */
+	asm volatile("bsr %1, %0\t\n" : "=r" (i) : "r" (tl->n));
+	if ((1 << i) != tl->n)
+		++i;
+
+	assert(i < NUM_LIMB_SIZES);
+	assert(p->nfree_limbs[i] >= 0 && p->nfree_limbs[i] < limbs_nfree[i]);
+
+	++p->nfree_limbs[i];
+	memset(tl->l, -1, tl->n << LIMB_BYTES_LOG);
+	list_add(&tl->entry, &p->free_limbs[i]);
+}
+
+/* Also puts the limbs allocated to this bn. */
+static void bn_pool_put_bn(struct bn_pool *p, struct bn *b)
 {
 	assert(b != BN_INVALID);
-	return b->nalloc == 0 && b->nsig == 0 && b->neg == 0 && b->l == NULL;
+
+	assert(p->nfree_nums >= 0 && p->nfree_nums < 128);
+	if (b->l != BN_LIMBS_INVALID)
+		bn_pool_put_limbs(p, b->l);
+
+	b->nsig = b->neg = -1;
+	b->l = BN_LIMBS_INVALID;
+
+	++p->nfree_nums;
+	list_add(&b->entry, &p->free_nums);
+}
+
+static void bn_zero(struct bn *b)
+{
+	if (b->l != BN_LIMBS_INVALID)
+		bn_pool_put_limbs(g_pool, b->l);
+	b->l = BN_LIMBS_INVALID;
+	b->nsig = b->neg = 0;
 }
 
 static void bn_nsig_invariant(const struct bn *b)
 {
-	assert(b != BN_INVALID);
-	assert(bn_is_zero(b) || b->l[b->nsig - 1]);
+	assert(bn_is_zero(b) || b->l->l[b->nsig - 1]);
+}
+
+/* Go to the next bn_nlimbs level. */
+static void bn_expand(struct bn *b, int n)
+{
+	struct limbs *tl, *tlnew;
+
+	assert(n >= 0);
+	assert(n <= bn_nlimbs[NUM_LIMB_SIZES - 1]);
+
+	tl = b->l;
+	assert(tl == BN_LIMBS_INVALID ||
+	       tl->n < bn_nlimbs[NUM_LIMB_SIZES - 1]);
+
+	/* If the current allocation is sufficient, return. */
+	if (tl != BN_LIMBS_INVALID && tl->n >= n)
+		return;
+
+	/* Else allocate. */
+	tlnew = bn_pool_get_limbs(g_pool, n);
+	if (tl != BN_LIMBS_INVALID) {
+		assert(tlnew->n > tl->n);
+		memcpy(tlnew->l, tl->l, tl->n << LIMB_BYTES_LOG);
+		bn_pool_put_limbs(g_pool, tl);
+	}
+	b->l = tlnew;
+}
+
+static void bn_push_back(struct bn *b, limb_t v)
+{
+	bn_expand(b, b->nsig + 1);
+	b->l->l[b->nsig] = v;
+	++b->nsig;
+}
+
+static void bn_snap(struct bn *b)
+{
+	int i;
+
+	for (i = b->nsig - 1; i >= 0; --i)
+		if (b->l->l[i])
+			break;
+	++i;
+
+	/* No change. */
+	if (i == b->nsig)
+		return;
+
+	if (i == 0)
+		bn_zero(b);
+	b->nsig = i;
 }
 
 /* TODO check validity of the bit input. */
-char bn_test_bit(const struct bn *b, int bit)
+char bn_test_bit(const struct bn *b, int ix)
 {
 	int l;
 
-	l = bit >> LIMB_BITS_LOG;
-	bit &= LIMB_BITS_MASK;
-	return b->l[l] & ((limb_t)1 << bit) ? 1 : 0;
+	assert(ix >= 0);
+	assert(!bn_is_zero(b));
+	assert(ix <= (b->l->n << LIMB_BITS_LOG) - 1);
+
+	l = ix >> LIMB_BITS_LOG;
+	ix &= LIMB_BITS_MASK;
+	return b->l->l[l] & ((limb_t)1 << ix) ? 1 : 0;
 }
 
 static char bn_is_even(const struct bn *b)
 {
 	if (bn_is_zero(b))
 		return 1;
-	return (b->l[0] & 1) == 0;
+	return (b->l->l[0] & 1) == 0;
 }
 
 static void bn_rev_limbs(struct bn *b)
@@ -56,13 +268,11 @@ static void bn_rev_limbs(struct bn *b)
 	int i;
 	limb_t t;
 
-	assert(b != BN_INVALID);
-
 	/* Reverse the order of the q limbs. */
 	for (i = 0; i < b->nsig >> 1; ++i) {
-		t = b->l[i];
-		b->l[i] = b->l[b->nsig - i - 1];
-		b->l[b->nsig - i - 1] = t;
+		t = b->l->l[i];
+		b->l->l[i] = b->l->l[b->nsig - i - 1];
+		b->l->l[b->nsig - i - 1] = t;
 	}
 }
 
@@ -84,86 +294,22 @@ int bn_msb(const struct bn *b)
 		return -1;
 
 	msb = (b->nsig - 1) << LIMB_BITS_LOG;
-	msb += bn_bsr(b->l[b->nsig - 1]);
+	msb += bn_bsr(b->l->l[b->nsig - 1]);
 	return msb;
 }
 
 /* Don't allow expansion throw set bit routine. */
 static void bn_set_bit(struct bn *b, int ix)
 {
-	int msb_allowed, l;
+	int l;
 
 	assert(ix >= 0);
-	msb_allowed = (b->nalloc << LIMB_BITS_LOG) - 1;
-	assert(ix <= msb_allowed);
+	assert(!bn_is_zero(b));
+	assert(ix <= (b->l->n << LIMB_BITS_LOG) - 1);
 
 	l = ix >> LIMB_BITS_LOG;
 	ix &= LIMB_BITS_MASK;
-	b->l[l] |= (limb_t)1 << ix;
-}
-
-static void bn_expand(struct bn *b, int nalloc)
-{
-	limb_t *l;
-
-	/* We only expand if necessary. */
-	if (nalloc <= b->nalloc)
-		return;
-
-	/* The number is a 0. Use calloc to zero the memory. */
-	if (b->l == NULL)
-		l = calloc(nalloc, LIMB_BYTES);
-	else
-		l = realloc(b->l, nalloc << LIMB_BYTES_LOG);
-
-	assert(l);
-	b->l = l;
-	b->nalloc = nalloc;
-}
-
-static void bn_push_back(struct bn *b, limb_t v)
-{
-	bn_expand(b, b->nsig + 1);
-	++b->nsig;
-	b->l[b->nsig - 1] = v;
-}
-
-static void bn_zero(struct bn *b)
-{
-	assert(b != BN_INVALID);
-	free(b->l);
-	b->nalloc = b->nsig = b->neg = 0;
-	b->l = NULL;
-}
-
-static void bn_snap(struct bn *b)
-{
-	int i;
-
-	assert(b != BN_INVALID);
-
-	for (i = b->nsig - 1; i >= 0; --i)
-		if (b->l[i])
-			break;
-	++i;
-
-	/* No change. */
-	if (i == b->nsig)
-		return;
-
-	if (i == 0) {
-		bn_zero(b);
-		return;
-	}
-
-	/* Reduce memory. */
-	if (b->nsig - i > 1) {
-		b->l = realloc(b->l, i << LIMB_BYTES_LOG);
-		b->nalloc = i;
-	}
-
-	/* Snap also adjusts nsig; expand does not. */
-	b->nsig = i;
+	b->l->l[l] |= (limb_t)1 << ix;
 }
 
 static void bn_mul_limb(struct bn *a, limb_t b)
@@ -201,7 +347,7 @@ static void bn_mul_kar(struct bn *a, const struct bn *b)
 	neg = a->neg != b->neg;
 
 	if (b->nsig == 1) {
-		bn_mul_limb(a, b->l[0]);
+		bn_mul_limb(a, b->l->l[0]);
 		if (!bn_is_zero(a))
 			a->neg = neg;
 		return;
@@ -209,11 +355,14 @@ static void bn_mul_kar(struct bn *a, const struct bn *b)
 
 	if (a->nsig == 1) {
 		t = bn_new_copy(b);
-		bn_mul_limb(t, a->l[0]);
+		bn_mul_limb(t, a->l->l[0]);
 		bn_zero(a);
 		*a = *t;
 		if (!bn_is_zero(a))
 			a->neg = neg;
+
+		t->l = BN_LIMBS_INVALID;
+		bn_pool_put_bn(g_pool, t);
 		return;
 	}
 
@@ -235,6 +384,7 @@ static void bn_mul_kar(struct bn *a, const struct bn *b)
 	memset(&bl, 0, sizeof(bl));
 	memset(&ah, 0, sizeof(ah));
 	memset(&bh, 0, sizeof(bh));
+	al.l = bl.l = ah.l = bh.l = BN_LIMBS_INVALID;
 
 	al.nsig = mx < a->nsig ? mx : a->nsig;
 	bl.nsig = mx < b->nsig ? mx : b->nsig;
@@ -246,10 +396,10 @@ static void bn_mul_kar(struct bn *a, const struct bn *b)
 	bn_expand(&ah, ah.nsig);
 	bn_expand(&bh, bh.nsig);
 
-	memcpy(al.l, a->l, al.nsig << LIMB_BYTES_LOG);
-	memcpy(bl.l, b->l, bl.nsig << LIMB_BYTES_LOG);
-	memcpy(ah.l, a->l + al.nsig, ah.nsig << LIMB_BYTES_LOG);
-	memcpy(bh.l, b->l + bl.nsig, bh.nsig << LIMB_BYTES_LOG);
+	memcpy(al.l->l, a->l->l, al.nsig << LIMB_BYTES_LOG);
+	memcpy(bl.l->l, b->l->l, bl.nsig << LIMB_BYTES_LOG);
+	memcpy(ah.l->l, a->l->l + al.nsig, ah.nsig << LIMB_BYTES_LOG);
+	memcpy(bh.l->l, b->l->l + bl.nsig, bh.nsig << LIMB_BYTES_LOG);
 
 	bn_snap(&al);
 	bn_snap(&bl);
@@ -277,13 +427,14 @@ static void bn_mul_kar(struct bn *a, const struct bn *b)
 	bn_zero(&ah);
 	bn_zero(&bl);
 	bn_zero(&bh);
-	bn_free(rd);
+	bn_pool_put_bn(g_pool, rd);
 
 	bn_zero(a);
 	*a = *ra;
 	if (!bn_is_zero(a))
 		a->neg = neg;
-	free(ra);
+	ra->l = BN_LIMBS_INVALID;
+	bn_pool_put_bn(g_pool, ra);
 	bn_nsig_invariant(a);
 }
 
@@ -303,13 +454,16 @@ static void bn_sub_abs(struct bn *a, const struct bn *b)
 
 	if (cmp < 0) {
 		t = bn_new_copy(b);
-		r = limb_sub(t->l, t->nsig, a->l, a->nsig);
+		assert(t->l != BN_LIMBS_INVALID);
+		r = limb_sub(t->l, 0, t->nsig, a->l, 0, a->nsig);
 		bn_zero(a);
 		*a = *t;
 		a->neg = 1;
-		free(t);
+
+		t->l = BN_LIMBS_INVALID;
+		bn_pool_put_bn(g_pool, t);
 	} else {
-		r = limb_sub(a->l, a->nsig, b->l, b->nsig);
+		r = limb_sub(a->l, 0, a->nsig, b->l, 0, b->nsig);
 		a->neg = 0;
 	}
 	assert(r == 0);
@@ -325,13 +479,14 @@ static void bn_add_abs(struct bn *a, const struct bn *b)
 	/* Allocate space for the result. */
 	if (a->nsig < b->nsig) {
 		bn_expand(a, b->nsig);
-		/* This memeset is needed to avoid incorrect msb. */
-		memset(&a->l[a->nsig], 0,
+		/* Zero the extra limbs. */
+		memset(a->l->l + a->nsig, 0,
 		       (b->nsig - a->nsig) << LIMB_BYTES_LOG);
 		a->nsig = b->nsig;
 	}
 
-	r = limb_add(a->l, a->nsig, b->l, b->nsig);
+	r = limb_add(a->l, 0, a->nsig, b->l, 0, b->nsig);
+
 	/* If carry is left-over, expand the result. */
 	if (r)
 		bn_push_back(a, r);
@@ -366,43 +521,94 @@ static void bn_add_sub(struct bn *a, const struct bn *b, char add)
 
 
 
-struct bn *bn_new_copy(const struct bn *b)
+
+
+
+
+
+
+
+
+
+int bn_is_zero(const struct bn *b)
 {
-	struct bn *a;
+	assert(b != BN_INVALID);
+	return b->nsig == 0;
+}
 
-	a = bn_new_zero();
+int bn_cmp_int(const struct bn *b, int v)
+{
+	assert(b != BN_INVALID);
 
-	if (bn_is_zero(b))
-		return a;
+	if (v == 0)
+		return b->nsig == 0;
 
-	/* Choose nsig to allocate. */
-	a->l = malloc(b->nsig << LIMB_BYTES_LOG);
-	if (a->l == NULL)
-		goto err0;
+	if (b->nsig != 1)
+		return 0;
 
-	a->nsig = a->nalloc = b->nsig;
-	a->neg = b->neg;
-	memcpy(a->l, b->l, b->nsig << LIMB_BYTES_LOG);
-	return a;
-err0:
-	bn_free(a);
-	return BN_INVALID;
+	if (b->neg != (v < 0))
+		return 0;
+
+	if (v < 0)
+		v = -v;
+
+	if (b->l->l[0] == (limb_t)v)
+		return 1;
+
+	return 0;
+}
+
+int bn_is_one(const struct bn *b)
+{
+	return bn_cmp_int(b, 1);
+}
+
+void bn_free(struct bn *a)
+{
+	assert(a != BN_INVALID);
+	bn_pool_put_bn(g_pool, a);
+}
+
+void bn_init()
+{
+	assert(g_pool == BN_POOL_INVALID);
+	g_pool = bn_pool_new();
+	assert(g_pool != BN_POOL_INVALID);
+}
+
+void bn_fini()
+{
+	assert(g_pool != BN_POOL_INVALID);
+	bn_pool_free(g_pool);
+	g_pool = BN_POOL_INVALID;
 }
 
 struct bn *bn_new_zero()
 {
 	struct bn *b;
-	/* calloc is equivalent to bn_zero. */
-	b = calloc(1, sizeof(*b));
-	assert(b);
+	b = bn_pool_get_bn(g_pool);
+	b->neg = 0;
+	b->nsig = 0;
+	b->l = BN_LIMBS_INVALID;
 	return b;
 }
 
-void bn_free(struct bn *b)
+/* Requirement: sizeof(limb) >= sizeof(int). */
+struct bn *bn_new_from_int(int v)
 {
-	assert(b != BN_INVALID);
-	free(b->l);
-	free(b);
+	struct bn *b;
+
+	b = bn_new_zero();
+	if (v == 0)
+		return b;
+
+	if (v < 0) {
+		b->neg = 1;
+		v = -v;
+	}
+
+	bn_push_back(b, v);
+	return b;
 }
 
 void bn_print(const char *msg, const struct bn *b)
@@ -423,14 +629,31 @@ void bn_print(const char *msg, const struct bn *b)
 	if (b->neg)
 		printf("-");
 
+	fmt = "%x";
 	for (i = b->nsig - 1; i >= 0; --i) {
-		if (i == b->nsig - 1)
-			fmt = "%x";
-		else
-			fmt = LIMB_FMT_STR;
-		printf(fmt, b->l[i]);
+		printf(fmt, b->l->l[i]);
+		fmt = LIMB_FMT_STR;
 	}
 	printf("\n");
+}
+
+struct bn *bn_new_copy(const struct bn *b)
+{
+	struct bn *a;
+
+	assert(b != BN_INVALID);
+
+	a = bn_new_zero();
+
+	if (bn_is_zero(b))
+		return a;
+
+	/* Choose nsig to allocate. */
+	a->l = bn_pool_get_limbs(g_pool, b->nsig);
+	a->nsig = b->nsig;
+	a->neg = b->neg;
+	memcpy(a->l->l, b->l->l, b->nsig << LIMB_BYTES_LOG);
+	return a;
 }
 
 /*
@@ -442,23 +665,18 @@ void bn_print(const char *msg, const struct bn *b)
  */
 struct bn *bn_new_from_bytes(const uint8_t *bytes, int len)
 {
-	int i, j, k;
+	int i, j, k, nlimbs;
 	struct bn *b;
 	limb_t val;
 
 	b = BN_INVALID;
 	if (bytes == NULL || len <= 0)
-		goto err0;
+		return b;
 
 	b = bn_new_zero();
 
-	b->nalloc = len >> LIMB_BYTES_LOG;
-	if (len & LIMB_BYTES_MASK)
-		++b->nalloc;
-
-	b->l = calloc(b->nalloc, LIMB_BYTES);
-	if (b->l == NULL)
-		goto err1;
+	nlimbs = (len + LIMB_BYTES_MASK) >> LIMB_BYTES_LOG;
+	b->l = bn_pool_get_limbs(g_pool, nlimbs);
 
 	k = j = val = 0;
 	for (i = len - 1; i >= 0; --i) {
@@ -469,16 +687,11 @@ struct bn *bn_new_from_bytes(const uint8_t *bytes, int len)
 			continue;
 
 		j = 0;
-		b->l[k++] = val;
+		b->l->l[k++] = val;
 		val = 0;
 	}
 	b->nsig = k;
 	bn_snap(b);
-	return b;
-err1:
-	free(b);
-	b = BN_INVALID;
-err0:
 	return b;
 }
 
@@ -535,22 +748,6 @@ struct bn *bn_new_from_string(const char *str, int radix)
 err1:
 	free(bytes);
 err0:
-	return b;
-}
-
-/* Requirement: sizeof(limb) >= sizeof(int). */
-struct bn *bn_new_from_int(int v)
-{
-	struct bn *b;
-	b = bn_new_zero();
-	if (v == 0)
-		return b;
-
-	if (v < 0) {
-		b->neg = 1;
-		v = -v;
-	}
-	bn_push_back(b, v);
 	return b;
 }
 
@@ -683,7 +880,7 @@ void bn_div(struct bn *a, const struct bn *b, struct bn **r)
 	 * Since b = 2^LIMB_BITS, v1 needs to have its MSB set for it
 	 * to be >= floor(b/2).
 	 */
-	ls = LIMB_BITS_MASK - bn_bsr(b->l[b->nsig - 1]);
+	ls = LIMB_BITS_MASK - bn_bsr(b->l->l[b->nsig - 1]);
 	if (ls) {
 		/* Only allocate tb if there's a need to shift. */
 		t = bn_new_copy(b);
@@ -699,9 +896,9 @@ void bn_div(struct bn *a, const struct bn *b, struct bn **r)
 	if (ta->nsig == a->nsig)
 		bn_push_back(ta, 0);
 
-	bh = tb->l[tb->nsig - 1];
+	bh = tb->l->l[tb->nsig - 1];
 	if (tb->nsig > 1)
-		bl = tb->l[tb->nsig - 2];
+		bl = tb->l->l[tb->nsig - 2];
 	else
 		bl = 0;
 
@@ -710,8 +907,8 @@ void bn_div(struct bn *a, const struct bn *b, struct bn **r)
 	 *  j must be such that j - n >= 0, or j >= n, where n is tb->nsig
 	 */
 	for (i = 0, j = ta->nsig - 1; j >= tb->nsig; --j, ++i) {
-		ah = ta->l[j];
-		al = ta->l[j - 1];
+		ah = ta->l->l[j];
+		al = ta->l->l[j - 1];
 
 		v   = ah;
 		v <<= LIMB_BITS;
@@ -725,7 +922,7 @@ void bn_div(struct bn *a, const struct bn *b, struct bn **r)
 
 		if (q == 0) {
 			/* Step D5. */
-			a->l[i] = q;
+			a->l->l[i] = q;
 			continue;
 		}
 
@@ -741,7 +938,7 @@ void bn_div(struct bn *a, const struct bn *b, struct bn **r)
 			if (rem >> LIMB_BITS)
 				break;
 			rem <<= LIMB_BITS;
-			rem |= ta->l[j - 2];
+			rem |= ta->l->l[j - 2];
 
 			/* v2 * q is less. */
 			if ((limb2_t)q * bl <= rem)
@@ -753,7 +950,7 @@ void bn_div(struct bn *a, const struct bn *b, struct bn **r)
 
 		if (q == 0) {
 			/* Step D5. */
-			a->l[i] = q;
+			a->l->l[i] = q;
 			continue;
 		}
 
@@ -775,23 +972,23 @@ void bn_div(struct bn *a, const struct bn *b, struct bn **r)
 
 		assert(t->nsig == tb->nsig || t->nsig == tb->nsig + 1);
 
-		sr = limb_sub(ta->l + j - tb->nsig, tb->nsig + 1, t->l,
+		sr = limb_sub(ta->l, j - tb->nsig, tb->nsig + 1, t->l, 0,
 			      t->nsig);
 		if (sr) {
 			--q;
-			sr += limb_add(ta->l + j - tb->nsig, tb->nsig + 1,
-				       tb->l, tb->nsig);
+			sr += limb_add(ta->l, j - tb->nsig, tb->nsig + 1,
+				       tb->l, 0, tb->nsig);
 		}
 		assert(sr == 0);
 
-		bn_free(t);
+		bn_pool_put_bn(g_pool, t);
 
 		/* Step D5. */
-		a->l[i] = q;
+		a->l->l[i] = q;
 	}
 
 	if (ls)
-		bn_free((struct bn *)tb);
+		bn_pool_put_bn(g_pool, (struct bn *)tb);
 
 	/* Form the quotient. */
 	if (i == 0) {
@@ -803,7 +1000,7 @@ void bn_div(struct bn *a, const struct bn *b, struct bn **r)
 	}
 
 	if (r == NULL) {
-		bn_free(ta);
+		bn_pool_put_bn(g_pool, ta);
 		return;
 	}
 
@@ -826,11 +1023,12 @@ void bn_mod(struct bn *a, const struct bn *b)
 	bn_mul(a, b);
 	bn_add(a, rem);
 	assert(bn_cmp_abs(a, ta) == 0);
-	bn_free(ta);
+	bn_pool_put_bn(g_pool, ta);
 
 	bn_zero(a);
 	*a = *rem;
-	free(rem);
+	rem->l = BN_LIMBS_INVALID;
+	bn_pool_put_bn(g_pool, rem);
 }
 
 /* Binary GCD algorithm. */
@@ -884,10 +1082,9 @@ void bn_gcd(struct bn *a, const struct bn *b)
 	bn_snap(gcd);
 	if (gcd == tb) {
 		*a = *tb;
-		free(tb);
-	} else {
-		bn_free(tb);
+		tb->l = BN_LIMBS_INVALID;
 	}
+	bn_pool_put_bn(g_pool, tb);
 }
 
 char bn_mod_inv(struct bn *a, const struct bn *m)
@@ -924,9 +1121,9 @@ char bn_mod_inv(struct bn *a, const struct bn *m)
 
 		/* If the remainder is 0, done. */
 		if (bn_is_zero(rem)) {
-			bn_free(r0);
-			bn_free(s0);
-			bn_free(rem);
+			bn_pool_put_bn(g_pool, r0);
+			bn_pool_put_bn(g_pool, s0);
+			bn_pool_put_bn(g_pool, rem);
 			break;
 		}
 
@@ -938,7 +1135,7 @@ char bn_mod_inv(struct bn *a, const struct bn *m)
 		 */
 		bn_mul(r0, s1);	/* r0 * s1. */
 		bn_sub(s0, r0);	/* s0 - r0 * s1. */
-		bn_free(r0);
+		bn_pool_put_bn(g_pool, r0);
 
 		t = s1;
 		s1 = s0;
@@ -953,11 +1150,11 @@ char bn_mod_inv(struct bn *a, const struct bn *m)
 	/* r1 has the gcd. If it is not 1, inverse does not exist. */
 	bn_snap(r1);
 	if (!bn_is_one(r1)) {
-		bn_free(s1);
-		bn_free(r1);
+		bn_pool_put_bn(g_pool, s1);
+		bn_pool_put_bn(g_pool, r1);
 		return 0;
 	}
-	bn_free(r1);
+	bn_pool_put_bn(g_pool, r1);
 
 	/* s1 is the required inverse. If it is -ve, add m. */
 	if (s1->neg) {
@@ -968,7 +1165,8 @@ char bn_mod_inv(struct bn *a, const struct bn *m)
 
 	bn_zero(a);
 	*a = *s1;
-	free(s1);
+	s1->l = BN_LIMBS_INVALID;
+	bn_pool_put_bn(g_pool, s1);
 	return 1;
 }
 
@@ -1022,27 +1220,26 @@ struct bn_ctx_mont *bn_ctx_mont_new(const struct bn *m)
 	/* Check rr' == 1 mod m. */
 	bn_mod(t, m);
 	assert(bn_is_one(t));
-	bn_free(t);
+	bn_pool_put_bn(g_pool, t);
 	t = BN_INVALID;
 
 	bn_sub(ctx->factor, one);
 	bn_div(ctx->factor, m, &t);
 	assert(bn_is_zero(t));
-	bn_free(t);
-	bn_free(one);
-
+	bn_pool_put_bn(g_pool, t);
+	bn_pool_put_bn(g_pool, one);
 	return ctx;
 }
 
 void bn_ctx_mont_free(struct bn_ctx_mont *ctx)
 {
 	assert(ctx);
-	bn_free(ctx->m);
-	bn_free(ctx->r);
-	bn_free(ctx->rinv);
-	bn_free(ctx->factor);
-	bn_free(ctx->one);
-	bn_free(ctx->mask);
+	bn_pool_put_bn(g_pool, ctx->m);
+	bn_pool_put_bn(g_pool, ctx->r);
+	bn_pool_put_bn(g_pool, ctx->rinv);
+	bn_pool_put_bn(g_pool, ctx->factor);
+	bn_pool_put_bn(g_pool, ctx->one);
+	bn_pool_put_bn(g_pool, ctx->mask);
 	free(ctx);
 }
 
@@ -1121,7 +1318,8 @@ void bn_mul_mont(const struct bn_ctx_mont *ctx, struct bn *a,
 
 	if (bn_cmp_abs(a, ctx->m) >= 0)
 		bn_sub(a, ctx->m);
-	bn_free(t);
+
+	bn_pool_put_bn(g_pool, t);
 	assert(bn_cmp_abs(a, ctx->m) < 0);
 }
 
@@ -1149,7 +1347,8 @@ void bn_mod_pow_mont(const struct bn_ctx_mont *ctx,
 	}
 	bn_zero(a);
 	*a = *pow;
-	free(pow);
+	pow->l = BN_LIMBS_INVALID;
+	bn_pool_put_bn(g_pool, pow);
 }
 
 /* a^e % m. */
@@ -1164,7 +1363,6 @@ void bn_mod_pow(struct bn *a, const struct bn *e, const struct bn *m)
 	/* If a is 0, return 0. */
 	if (bn_is_zero(a))
 		return;
-
 	ctx = bn_ctx_mont_new(m);
 	bn_to_mont(ctx, a);
 	bn_mod_pow_mont(ctx, a, e);
@@ -1234,12 +1432,12 @@ void bn_mod_sqrt(struct bn *a, const struct bn *m)	/* m == modulus. */
 		/* Found -1 mod p, a non-square. */
 		if (bn_cmp_abs(t, ctx->one))
 			found = 1;
-		bn_free(t);
+		bn_pool_put_bn(g_pool, t);
 		if (found)
 			break;
 		bn_add(q, ctx->one);
 	}
-	bn_free(exp);
+	bn_pool_put_bn(g_pool, exp);
 
 	/* Initialize x, b, r, g. All in Montgomery form. */
 	b = bn_new_copy(ma);
@@ -1253,9 +1451,9 @@ void bn_mod_sqrt(struct bn *a, const struct bn *m)	/* m == modulus. */
 	bn_shr(s, 1);	/* (s + 1) / 2 */
 	bn_mod_pow_mont(ctx, x, s);
 
-	bn_free(s);
-	bn_free(ma);
-	bn_free(q);
+	bn_pool_put_bn(g_pool, s);
+	bn_pool_put_bn(g_pool, ma);
+	bn_pool_put_bn(g_pool, q);
 
 	for (;;) {
 		/* Find least integer i such that b^(2^i) === 1 mod m. */
@@ -1266,12 +1464,12 @@ void bn_mod_sqrt(struct bn *a, const struct bn *m)	/* m == modulus. */
 			bn_mod_pow_mont(ctx, t, exp);
 			if (!bn_cmp_abs(t, ctx->one))
 				found = 1;
-			bn_free(t);
+			bn_pool_put_bn(g_pool, t);
 			if (found)
 				break;
 			bn_shl(exp, 1);
 		}
-		bn_free(exp);
+		bn_pool_put_bn(g_pool, exp);
 		assert(found);
 		if (i == 0)
 			break;
@@ -1282,7 +1480,7 @@ void bn_mod_sqrt(struct bn *a, const struct bn *m)	/* m == modulus. */
 		t = bn_new_copy(g);
 		bn_mod_pow_mont(ctx, t, exp);
 		bn_mul_mont(ctx, x, t);
-		bn_free(t);
+		bn_pool_put_bn(g_pool, t);
 
 		/* b = b * g^(2^(r-i)) */
 		exp = bn_new_copy(one);
@@ -1290,25 +1488,26 @@ void bn_mod_sqrt(struct bn *a, const struct bn *m)	/* m == modulus. */
 		t = bn_new_copy(g);
 		bn_mod_pow_mont(ctx, t, exp);
 		bn_mul_mont(ctx, b, t);
-		bn_free(t);
+		bn_pool_put_bn(g_pool, t);
 
 		/* g =  g^(2^(r-i)) */
 		bn_mod_pow_mont(ctx, g, exp);
-		bn_free(exp);
+		bn_pool_put_bn(g_pool, exp);
 
 		r = i;
 	}
 
-	bn_free(b);
-	bn_free(g);
-	bn_free(one);
+	bn_pool_put_bn(g_pool, b);
+	bn_pool_put_bn(g_pool, g);
+	bn_pool_put_bn(g_pool, one);
 
 	bn_from_mont(ctx, x);
 	bn_ctx_mont_free(ctx);
 
 	bn_zero(a);
 	*a = *x;
-	free(x);
+	x->l = BN_LIMBS_INVALID;
+	bn_pool_put_bn(g_pool, x);
 }
 
 
@@ -1363,6 +1562,7 @@ struct bn *bn_new_prob_prime(int nbits)
 	two = bn_new_from_int(2);
 	rndm_fill(bytes, nbits);
 
+//	n = bn_new_from_string("cedbe242489741652735efb448dc4105", 16);
 //	n = bn_new_from_string("3fc237c0331dc23265e6e2c76af63bef", 16);
 
 	n = bn_new_from_bytes(bytes, nbytes);
@@ -1371,7 +1571,6 @@ struct bn *bn_new_prob_prime(int nbits)
 
 	bn_set_bit(n, 0);
 	bn_set_bit(n, nbits - 1);
-
 	for (;;) {
 		/* TODO Handle Overflow. */
 		if (bn_msb(n) >= nbits)
@@ -1384,22 +1583,23 @@ struct bn *bn_new_prob_prime(int nbits)
 
 		for (i = 0; i < nprimes && comp == 0; ++i) {
 			rem = BN_INVALID;
-			a->l[0] = primes[i];
+			a->l->l[0] = primes[i];
 			if (bn_cmp_abs(t, a) >= 0)
 				break;
 
-			/* bn_div does not change the allocation of t->l .*/
+			/* bn_div does not change the allocation of t->l->l .*/
 			bn_div(t, a, &rem);
 			if (bn_is_zero(rem)) {
 				comp = 1;
 			} else {
-				memcpy(t->l, n->l, n->nsig << LIMB_BYTES_LOG);
+				memcpy(t->l->l, n->l->l,
+				       n->nsig << LIMB_BYTES_LOG);
 				t->nsig = n->nsig;
 			}
-			bn_free(rem);
+			bn_pool_put_bn(g_pool, rem);
 		}
-		bn_free(t);
-		bn_free(a);
+		bn_pool_put_bn(g_pool, t);
+		bn_pool_put_bn(g_pool, a);
 
 		if (comp) {
 			bn_add(n, two);
@@ -1415,20 +1615,20 @@ struct bn *bn_new_prob_prime(int nbits)
 			t = bn_new_copy(a);
 			bn_mod_pow(t, nm1, n);
 			if (!bn_is_one(t)) {
-				bn_free(t);
+				bn_pool_put_bn(g_pool, t);
 				break;
 			}
-			bn_free(t);
+			bn_pool_put_bn(g_pool, t);
 			bn_add(a, one);
 		}
-		bn_free(a);
-		bn_free(nm1);
+		bn_pool_put_bn(g_pool, a);
+		bn_pool_put_bn(g_pool, nm1);
 		if (i == 10)
 			break;
 		bn_add(n, two);
 	}
-	bn_free(one);
-	bn_free(two);
+	bn_pool_put_bn(g_pool, one);
+	bn_pool_put_bn(g_pool, two);
 err1:
 	free(bytes);
 err0:

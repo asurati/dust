@@ -47,6 +47,9 @@ int main()
 	struct ec_point *pub[2];
 	struct ec_mont_params emp;
 
+	/* Must be the first call. */
+	bn_init();
+
 	emp.c4 = NULL;
 	emp.prime = "7fffffffffffffff ffffffffffffffff ffffffffffffffff"
 		"ffffffffffffffed";
@@ -83,6 +86,8 @@ int main()
 	ec_point_free(ec, pub[1]);
 	bn_free(priv[0]);
 	bn_free(priv[1]);
+	bn_free(prime);
 	ec_free(ec);
+	bn_fini();
 	return 0;
 }
