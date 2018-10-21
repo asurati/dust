@@ -25,6 +25,8 @@ struct bn	*bn_new_from_string(const char *str, int radix);
 struct bn	*bn_new_copy(const struct bn *b);
 struct bn	*bn_new_prob_prime(int nbits);
 
+uint8_t		*bn_to_bytes_le(const struct bn *b, int *len);
+
 void		 bn_free(struct bn *b);
 
 int		 bn_is_zero(const struct bn *b);

@@ -656,6 +656,40 @@ struct bn *bn_new_copy(const struct bn *b)
 	return a;
 }
 
+/* TODO sign. */
+uint8_t *bn_to_bytes_le(const struct bn *b, int *len)
+{
+	int nbytes, i, j;
+	uint8_t *bytes;
+
+	assert(b != BN_INVALID);
+	assert(len != NULL);
+	assert(b->neg == 0);
+
+	if (bn_is_zero(b)) {
+		bytes = malloc(1);
+		assert(bytes);
+		bytes[0] = 0;
+		*len = 1;
+		return bytes;
+	}
+
+	nbytes = b->nsig << LIMB_BYTES_LOG;
+	bytes = malloc(nbytes);
+	assert(bytes);
+
+	for (i = 0, j = 0; i < b->nsig; ++i) {
+		bytes[j++] = b->l->l[i];
+		bytes[j++] = b->l->l[i] >> 8;
+		bytes[j++] = b->l->l[i] >> 16;
+		bytes[j++] = b->l->l[i] >> 24;
+	}
+
+	assert(nbytes == j);
+	*len = nbytes;
+	return bytes;
+}
+
 /*
  * The bytes array, laid down from index 0 at the left to index len - 1
  * to the right is treated as one large number, as written down on
