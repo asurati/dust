@@ -94,14 +94,14 @@ static struct ec *ec_mont_new(const struct ec_mont_params *p)
 	t[1] = bn_new_from_string(p->a, 16);
 	t[2] = bn_new_from_string(p->b, 16);
 	t[3] = bn_new_from_string(p->gx, 16);
-	t[4] = bn_new_from_string("1", 16);
+	t[4] = bn_new_from_int(1);
 	t[5] = bn_new_from_string(p->order, 16);
 	if (p->c4)
 		t[6] = bn_new_from_string(p->c4, 16);
 	else
 		t[6] = bn_new_from_string(p->a, 16);
-	t[7] = bn_new_from_string("2", 16);
-	t[8] = bn_new_from_string("4", 16);
+	t[7] = bn_new_from_int(2);
+	t[8] = bn_new_from_int(4);
 
 	for (i = 0; i < 9; ++i)
 		if (t[i] == BN_INVALID)
