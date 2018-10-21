@@ -952,11 +952,12 @@ char bn_mod_inv(struct bn *a, const struct bn *m)
 
 	/* r1 has the gcd. If it is not 1, inverse does not exist. */
 	bn_snap(r1);
-	if (r1->neg != 0 || r1->nsig != 1 || r1->l[0] != 1) {
+	if (!bn_is_one(r1)) {
 		bn_free(s1);
 		bn_free(r1);
 		return 0;
 	}
+	bn_free(r1);
 
 	/* s1 is the required inverse. If it is -ve, add m. */
 	if (s1->neg) {
