@@ -362,7 +362,7 @@ static void bn_mul_kar(struct bn *a, const struct bn *b)
 			a->neg = neg;
 
 		t->l = BN_LIMBS_INVALID;
-		bn_pool_put_bn(g_pool, t);
+		bn_free(t);
 		return;
 	}
 
@@ -427,14 +427,14 @@ static void bn_mul_kar(struct bn *a, const struct bn *b)
 	bn_zero(&ah);
 	bn_zero(&bl);
 	bn_zero(&bh);
-	bn_pool_put_bn(g_pool, rd);
+	bn_free(rd);
 
 	bn_zero(a);
 	*a = *ra;
 	if (!bn_is_zero(a))
 		a->neg = neg;
 	ra->l = BN_LIMBS_INVALID;
-	bn_pool_put_bn(g_pool, ra);
+	bn_free(ra);
 	bn_nsig_invariant(a);
 }
 
@@ -461,7 +461,7 @@ static void bn_sub_abs(struct bn *a, const struct bn *b)
 		a->neg = 1;
 
 		t->l = BN_LIMBS_INVALID;
-		bn_pool_put_bn(g_pool, t);
+		bn_free(t);
 	} else {
 		r = limb_sub(a->l, 0, a->nsig, b->l, 0, b->nsig);
 		a->neg = 0;
@@ -981,14 +981,14 @@ void bn_div(struct bn *a, const struct bn *b, struct bn **r)
 		}
 		assert(sr == 0);
 
-		bn_pool_put_bn(g_pool, t);
+		bn_free(t);
 
 		/* Step D5. */
 		a->l->l[i] = q;
 	}
 
 	if (ls)
-		bn_pool_put_bn(g_pool, (struct bn *)tb);
+		bn_free((struct bn *)tb);
 
 	/* Form the quotient. */
 	if (i == 0) {
@@ -1000,7 +1000,7 @@ void bn_div(struct bn *a, const struct bn *b, struct bn **r)
 	}
 
 	if (r == NULL) {
-		bn_pool_put_bn(g_pool, ta);
+		bn_free(ta);
 		return;
 	}
 
@@ -1023,12 +1023,12 @@ void bn_mod(struct bn *a, const struct bn *b)
 	bn_mul(a, b);
 	bn_add(a, rem);
 	assert(bn_cmp_abs(a, ta) == 0);
-	bn_pool_put_bn(g_pool, ta);
+	bn_free(ta);
 
 	bn_zero(a);
 	*a = *rem;
 	rem->l = BN_LIMBS_INVALID;
-	bn_pool_put_bn(g_pool, rem);
+	bn_free(rem);
 }
 
 /* Binary GCD algorithm. */
@@ -1084,7 +1084,7 @@ void bn_gcd(struct bn *a, const struct bn *b)
 		*a = *tb;
 		tb->l = BN_LIMBS_INVALID;
 	}
-	bn_pool_put_bn(g_pool, tb);
+	bn_free(tb);
 }
 
 char bn_mod_inv(struct bn *a, const struct bn *m)
@@ -1121,9 +1121,9 @@ char bn_mod_inv(struct bn *a, const struct bn *m)
 
 		/* If the remainder is 0, done. */
 		if (bn_is_zero(rem)) {
-			bn_pool_put_bn(g_pool, r0);
-			bn_pool_put_bn(g_pool, s0);
-			bn_pool_put_bn(g_pool, rem);
+			bn_free(r0);
+			bn_free(s0);
+			bn_free(rem);
 			break;
 		}
 
@@ -1135,7 +1135,7 @@ char bn_mod_inv(struct bn *a, const struct bn *m)
 		 */
 		bn_mul(r0, s1);	/* r0 * s1. */
 		bn_sub(s0, r0);	/* s0 - r0 * s1. */
-		bn_pool_put_bn(g_pool, r0);
+		bn_free(r0);
 
 		t = s1;
 		s1 = s0;
@@ -1150,11 +1150,11 @@ char bn_mod_inv(struct bn *a, const struct bn *m)
 	/* r1 has the gcd. If it is not 1, inverse does not exist. */
 	bn_snap(r1);
 	if (!bn_is_one(r1)) {
-		bn_pool_put_bn(g_pool, s1);
-		bn_pool_put_bn(g_pool, r1);
+		bn_free(s1);
+		bn_free(r1);
 		return 0;
 	}
-	bn_pool_put_bn(g_pool, r1);
+	bn_free(r1);
 
 	/* s1 is the required inverse. If it is -ve, add m. */
 	if (s1->neg) {
@@ -1166,7 +1166,7 @@ char bn_mod_inv(struct bn *a, const struct bn *m)
 	bn_zero(a);
 	*a = *s1;
 	s1->l = BN_LIMBS_INVALID;
-	bn_pool_put_bn(g_pool, s1);
+	bn_free(s1);
 	return 1;
 }
 
@@ -1220,26 +1220,26 @@ struct bn_ctx_mont *bn_ctx_mont_new(const struct bn *m)
 	/* Check rr' == 1 mod m. */
 	bn_mod(t, m);
 	assert(bn_is_one(t));
-	bn_pool_put_bn(g_pool, t);
+	bn_free(t);
 	t = BN_INVALID;
 
 	bn_sub(ctx->factor, one);
 	bn_div(ctx->factor, m, &t);
 	assert(bn_is_zero(t));
-	bn_pool_put_bn(g_pool, t);
-	bn_pool_put_bn(g_pool, one);
+	bn_free(t);
+	bn_free(one);
 	return ctx;
 }
 
 void bn_ctx_mont_free(struct bn_ctx_mont *ctx)
 {
 	assert(ctx);
-	bn_pool_put_bn(g_pool, ctx->m);
-	bn_pool_put_bn(g_pool, ctx->r);
-	bn_pool_put_bn(g_pool, ctx->rinv);
-	bn_pool_put_bn(g_pool, ctx->factor);
-	bn_pool_put_bn(g_pool, ctx->one);
-	bn_pool_put_bn(g_pool, ctx->mask);
+	bn_free(ctx->m);
+	bn_free(ctx->r);
+	bn_free(ctx->rinv);
+	bn_free(ctx->factor);
+	bn_free(ctx->one);
+	bn_free(ctx->mask);
 	free(ctx);
 }
 
@@ -1319,7 +1319,7 @@ void bn_mul_mont(const struct bn_ctx_mont *ctx, struct bn *a,
 	if (bn_cmp_abs(a, ctx->m) >= 0)
 		bn_sub(a, ctx->m);
 
-	bn_pool_put_bn(g_pool, t);
+	bn_free(t);
 	assert(bn_cmp_abs(a, ctx->m) < 0);
 }
 
@@ -1348,7 +1348,7 @@ void bn_mod_pow_mont(const struct bn_ctx_mont *ctx,
 	bn_zero(a);
 	*a = *pow;
 	pow->l = BN_LIMBS_INVALID;
-	bn_pool_put_bn(g_pool, pow);
+	bn_free(pow);
 }
 
 /* a^e % m. */
@@ -1432,12 +1432,12 @@ void bn_mod_sqrt(struct bn *a, const struct bn *m)	/* m == modulus. */
 		/* Found -1 mod p, a non-square. */
 		if (bn_cmp_abs(t, ctx->one))
 			found = 1;
-		bn_pool_put_bn(g_pool, t);
+		bn_free(t);
 		if (found)
 			break;
 		bn_add(q, ctx->one);
 	}
-	bn_pool_put_bn(g_pool, exp);
+	bn_free(exp);
 
 	/* Initialize x, b, r, g. All in Montgomery form. */
 	b = bn_new_copy(ma);
@@ -1451,9 +1451,9 @@ void bn_mod_sqrt(struct bn *a, const struct bn *m)	/* m == modulus. */
 	bn_shr(s, 1);	/* (s + 1) / 2 */
 	bn_mod_pow_mont(ctx, x, s);
 
-	bn_pool_put_bn(g_pool, s);
-	bn_pool_put_bn(g_pool, ma);
-	bn_pool_put_bn(g_pool, q);
+	bn_free(s);
+	bn_free(ma);
+	bn_free(q);
 
 	for (;;) {
 		/* Find least integer i such that b^(2^i) === 1 mod m. */
@@ -1464,12 +1464,12 @@ void bn_mod_sqrt(struct bn *a, const struct bn *m)	/* m == modulus. */
 			bn_mod_pow_mont(ctx, t, exp);
 			if (!bn_cmp_abs(t, ctx->one))
 				found = 1;
-			bn_pool_put_bn(g_pool, t);
+			bn_free(t);
 			if (found)
 				break;
 			bn_shl(exp, 1);
 		}
-		bn_pool_put_bn(g_pool, exp);
+		bn_free(exp);
 		assert(found);
 		if (i == 0)
 			break;
@@ -1480,7 +1480,7 @@ void bn_mod_sqrt(struct bn *a, const struct bn *m)	/* m == modulus. */
 		t = bn_new_copy(g);
 		bn_mod_pow_mont(ctx, t, exp);
 		bn_mul_mont(ctx, x, t);
-		bn_pool_put_bn(g_pool, t);
+		bn_free(t);
 
 		/* b = b * g^(2^(r-i)) */
 		exp = bn_new_copy(one);
@@ -1488,18 +1488,18 @@ void bn_mod_sqrt(struct bn *a, const struct bn *m)	/* m == modulus. */
 		t = bn_new_copy(g);
 		bn_mod_pow_mont(ctx, t, exp);
 		bn_mul_mont(ctx, b, t);
-		bn_pool_put_bn(g_pool, t);
+		bn_free(t);
 
 		/* g =  g^(2^(r-i)) */
 		bn_mod_pow_mont(ctx, g, exp);
-		bn_pool_put_bn(g_pool, exp);
+		bn_free(exp);
 
 		r = i;
 	}
 
-	bn_pool_put_bn(g_pool, b);
-	bn_pool_put_bn(g_pool, g);
-	bn_pool_put_bn(g_pool, one);
+	bn_free(b);
+	bn_free(g);
+	bn_free(one);
 
 	bn_from_mont(ctx, x);
 	bn_ctx_mont_free(ctx);
@@ -1507,7 +1507,7 @@ void bn_mod_sqrt(struct bn *a, const struct bn *m)	/* m == modulus. */
 	bn_zero(a);
 	*a = *x;
 	x->l = BN_LIMBS_INVALID;
-	bn_pool_put_bn(g_pool, x);
+	bn_free(x);
 }
 
 
@@ -1596,10 +1596,10 @@ struct bn *bn_new_prob_prime(int nbits)
 				       n->nsig << LIMB_BYTES_LOG);
 				t->nsig = n->nsig;
 			}
-			bn_pool_put_bn(g_pool, rem);
+			bn_free(rem);
 		}
-		bn_pool_put_bn(g_pool, t);
-		bn_pool_put_bn(g_pool, a);
+		bn_free(t);
+		bn_free(a);
 
 		if (comp) {
 			bn_add(n, two);
@@ -1615,20 +1615,20 @@ struct bn *bn_new_prob_prime(int nbits)
 			t = bn_new_copy(a);
 			bn_mod_pow(t, nm1, n);
 			if (!bn_is_one(t)) {
-				bn_pool_put_bn(g_pool, t);
+				bn_free(t);
 				break;
 			}
-			bn_pool_put_bn(g_pool, t);
+			bn_free(t);
 			bn_add(a, one);
 		}
-		bn_pool_put_bn(g_pool, a);
-		bn_pool_put_bn(g_pool, nm1);
+		bn_free(a);
+		bn_free(nm1);
 		if (i == 10)
 			break;
 		bn_add(n, two);
 	}
-	bn_pool_put_bn(g_pool, one);
-	bn_pool_put_bn(g_pool, two);
+	bn_free(one);
+	bn_free(two);
 err1:
 	free(bytes);
 err0:
