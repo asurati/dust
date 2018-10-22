@@ -30,7 +30,8 @@ struct tls_ext_key_share_entry {
 	uint8_t key[];
 } __attribute__((packed));
 
-struct tls_ext_key_share {
+/* client key share alone. */
+struct tls_ext_ckey_share {
 	uint16_t len;
 	uint8_t data[];
 } __attribute__((packed));
@@ -62,6 +63,12 @@ struct tls_sess_id {
 } __attribute__((packed));
 
 struct tls_chello {
+	uint16_t ver;
+	uint8_t rnd[32];
+	uint8_t data[];
+} __attribute__((packed));
+
+struct tls_shello {
 	uint16_t ver;
 	uint8_t rnd[32];
 	uint8_t data[];
