@@ -1517,7 +1517,6 @@ void bn_mod_sqrt(struct bn *a, const struct bn *m)	/* m == modulus. */
 		bn_free(t);
 
 		/* b = b * g^(2^(r-i)) */
-		exp = bn_new_copy(one);
 		bn_shl(exp, 1);
 		t = bn_new_copy(g);
 		bn_mod_pow_mont(ctx, t, exp);
