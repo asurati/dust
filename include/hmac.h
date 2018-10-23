@@ -13,7 +13,7 @@ struct hmac_sha256_ctx {
 	uint8_t res[168];
 };
 
-void	hmac_sha256_init(struct hmac_sha256_ctx *ctx, const uint8_t *key,
+void	hmac_sha256_init(struct hmac_sha256_ctx *ctx, const void *key,
 	int klen);
 void	hmac_sha256_update(struct hmac_sha256_ctx *ctx, const void *bytes,
 	int len);

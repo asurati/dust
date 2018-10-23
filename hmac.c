@@ -32,7 +32,7 @@ static const uint8_t ipad[SHA256_BLOCK_LEN] = {
 	0x36,0x36,0x36,0x36,0x36,0x36,0x36,0x36
 };
 
-void hmac_sha256_init(struct hmac_sha256_ctx *ctx, const uint8_t *key,
+void hmac_sha256_init(struct hmac_sha256_ctx *ctx, const void *key,
 		      int klen)
 {
 	int i;
