@@ -11,10 +11,96 @@
 #include <arpa/inet.h>
 
 #include <rndm.h>
-
+#include <sha2.h>
+#include <hkdf.h>
 #include <sys/tls.h>
 
 static uint8_t b[4096];
+/*
+ * Secret is assumed to be of size == hash's digest len.
+ * The output length of expand is assumed to be the same.
+ */
+static void tls_derive_secret(const void *secret, const char *label,
+			      const void *msg, int mlen, uint8_t *out)
+{
+	int i;
+	uint16_t len;
+	struct sha256_ctx hash;
+	uint8_t dgst[SHA256_DIGEST_LEN];
+
+	sha256_init(&hash);
+	sha256_update(&hash, msg, mlen);
+	sha256_final(&hash, dgst);
+
+	i = 0;
+	len = htons(SHA256_DIGEST_LEN);
+	memcpy(b + i, &len, sizeof(len));
+	i += sizeof(len);
+
+	len = 6 + strlen(label);
+	memcpy(b + i, &len, 1);
+	++i;
+	memcpy(b + i, "tls13 ", 6);
+	i += 6;
+	memcpy(b + i, label, strlen(label));
+	i += strlen(label);
+
+	len = SHA256_DIGEST_LEN;
+	memcpy(b + i, &len, 1);
+	++i;
+	memcpy(b + i, dgst, sizeof(dgst));
+	i += sizeof(dgst);
+	len = i;
+
+	hkdf_sha256_expand(secret, SHA256_DIGEST_LEN, b, len, out,
+			   SHA256_DIGEST_LEN);
+}
+
+// https://github.com/project-everest/ci-logs/blob/master/everest-test-10b31d91-20801.all
+static const uint8_t sh[32] = {
+	0x67,0x32,0x85,0x96,0x5d,0xfa,0x28,0xcd,
+	0x80,0x2f,0x14,0x83,0x87,0x0a,0x1c,0xf7,
+	0x2b,0x92,0x61,0x7b,0xc1,0xda,0x14,0xec,
+	0x16,0xe4,0xd3,0x9b,0x6b,0xfa,0x24,0x72,
+};
+
+static const uint8_t zeroes[SHA256_DIGEST_LEN];
+void tls_derive_keys(const void *shared, int slen)
+{
+	int i;
+	uint8_t bytes[SHA256_DIGEST_LEN];
+
+	/* Early Secret. */
+	hkdf_sha256_extract(zeroes, sizeof(zeroes), zeroes, sizeof(zeroes),
+			    bytes);
+
+	/* Salt for next extract. */
+	tls_derive_secret(bytes, "derived", NULL, 0, bytes);
+	for (i = 0; i < 32; ++i)
+		printf("%02x", bytes[i]);
+	printf("\n");
+	// https://tlswg.github.io/draft-ietf-tls-tls13-vectors/draft-ietf-tls-tls13-vectors.html#rfc.section.3
+
+	/* Handshake Secret. */
+	hkdf_sha256_extract(bytes, sizeof(bytes), sh, 32, bytes);
+	for (i = 0; i < 32; ++i)
+		printf("%02x", bytes[i]);
+	printf("\n");
+	return;
+
+	/* client handshake traffic secret. */
+	tls_derive_secret(bytes, "c hs traffic", NULL, 0, bytes);
+	/* server handshake traffic secret. */
+	tls_derive_secret(bytes, "s hs traffic", NULL, 0, bytes);
+
+	/*
+	 * Derive the write and iv keys for both the directions, and apply
+	 * them appropriately to the cipher.
+	 */
+	(void)shared;
+	(void)slen;
+}
+
 int tls_parse_records(const uint8_t *buf, int len, uint8_t *peerpub)
 {
 	int i, n, recsz;
@@ -101,6 +187,7 @@ int tls_parse_records(const uint8_t *buf, int len, uint8_t *peerpub)
 	assert(n == recsz);
 	return n;
 	(void)buf;
+	(void)tls_derive_secret;
 }
 
 int tls_fill_chello(uint8_t *buf, int len, const uint8_t *pubkey)

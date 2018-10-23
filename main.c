@@ -65,9 +65,15 @@ struct bn *bn_rand(const struct bn *m)
 	return t;
 }
 
+void tls_derive_keys(const void *shared, int slen);
+int main()
+{
+	tls_derive_keys(NULL, 0);
+}
+
 
 uint8_t buf[4096];
-int main()
+int main2()
 {
 	int sock, n;
 	struct bn *t;
