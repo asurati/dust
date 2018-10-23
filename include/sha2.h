@@ -9,6 +9,9 @@
 
 #include <stdint.h>
 
+#define SHA256_BLOCK_LEN			64
+#define SHA256_DIGEST_LEN			32
+
 struct sha256_ctx {
 	uint8_t res[104];
 };

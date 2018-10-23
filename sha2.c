@@ -59,7 +59,7 @@ static void sha256_block(struct sha256 *c)
 	uint32_t s0, s1, ch, t0, t1;
 	uint32_t lh[8];
 
-	for (i = 0; i < 64; i += sizeof(uint32_t))
+	for (i = 0; i < SHA256_BLOCK_LEN; i += sizeof(uint32_t))
 		w[i >> 2] = htonl(*(uint32_t *)(c->buf + i));
 
 	for (i = 16; i < 64; ++i) {
@@ -110,6 +110,9 @@ static void sha256_block(struct sha256 *c)
 
 	for (i = 0; i < 8; ++i)
 		c->h[i] += lh[i];
+
+	/* TODO secure. */
+	memset(w, -1, sizeof(w));
 }
 
 void sha256_update(struct sha256_ctx *ctx, const void *bytes, int len)
@@ -127,14 +130,14 @@ void sha256_update(struct sha256_ctx *ctx, const void *bytes, int len)
 	in = bytes;
 	src = 0;
 	for (; len;) {
-		diff = 64 - c->nbytes;
+		diff = SHA256_BLOCK_LEN - c->nbytes;
 		n = diff < len ? diff : len;
 		memcpy(c->buf + c->nbytes, in + src, n);
 		c->nbytes += n;
 		src += n;
 		len -= n;
 
-		if (c->nbytes == 64) {
+		if (c->nbytes == SHA256_BLOCK_LEN) {
 			c->nbytes = 0;
 			++c->nwords;
 			/* Overflow. */
@@ -178,11 +181,12 @@ void sha256_final(struct sha256_ctx *ctx, uint8_t *bytes)
 		k -= 8;
 	}
 	sha256_update(ctx, &len, sizeof(len));
-	for (i = 0; i < 32; i += 4) {
+	for (i = 0; i < SHA256_DIGEST_LEN; i += 4) {
 		j = i >> 2;
 		bytes[i + 0] = (c->h[j] >> 24) & 0xff;
 		bytes[i + 1] = (c->h[j] >> 16) & 0xff;
 		bytes[i + 2] = (c->h[j] >> 8) & 0xff;
 		bytes[i + 3] = (c->h[j] >> 0) & 0xff;
 	}
+	sha256_init(ctx);
 }
