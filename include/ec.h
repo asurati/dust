@@ -27,6 +27,8 @@ struct ec_mont_params {
 struct ec	*ec_new_montgomery(const struct ec_mont_params *p);
 void		 ec_free(struct ec *ec);
 
+struct ec_point	*ec_point_new(const struct ec *ec, const struct bn *x,
+		 const struct bn *y, const struct bn *z);
 struct ec_point	*ec_point_new_copy(const struct ec *ec,
 		 const struct ec_point *a);
 void		 ec_point_free(const struct ec *ec, struct ec_point *a);

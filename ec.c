@@ -35,6 +35,25 @@ static void ec_mont_point_free(struct ec_point *a)
 	free(a);
 }
 
+
+/* TODO check validity of a as a point on the curve. */
+static struct ec_point *ec_mont_point_new(const struct bn *x,
+					  const struct bn *y,
+					  const struct bn *z)
+{
+	struct ec_point *b;
+	b = malloc(sizeof(*b));
+	assert(b);
+	b->x = bn_new_copy(x);
+	if (z)
+		b->z = bn_new_copy(z);
+	else
+		b->z = bn_new_from_int(1);
+	return b;
+	(void)y;
+}
+
+/* TODO check validity of a as a point on the curve. */
 static struct ec_point *ec_mont_point_new_copy(const struct ec_point *a)
 {
 	struct ec_point *b;
@@ -326,6 +345,20 @@ void ec_point_free(const struct ec *ec, struct ec_point *a)
 	default:
 		assert(0);
 	}
+}
+
+struct ec_point	*ec_point_new(const struct ec *ec, const struct bn *x,
+			      const struct bn *y, const struct bn *z)
+{
+	assert(ec != EC_INVALID);
+	switch (ec->form) {
+	case ECF_MONTGOMERY:
+		return ec_mont_point_new(x, y, z);
+		break;
+	default:
+		assert(0);
+	}
+	return EC_POINT_INVALID;
 }
 
 struct ec_point *ec_point_new_copy(const struct ec *ec,
