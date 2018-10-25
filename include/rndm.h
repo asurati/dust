@@ -9,5 +9,5 @@
 
 #include <stdint.h>
 
-void		 rndm_fill(uint8_t *bytes, int nbits);
+void		 rndm_fill(void *bytes, int nbits);
 #endif
