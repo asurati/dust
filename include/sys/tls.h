@@ -9,82 +9,102 @@
 
 #include <stdint.h>
 
-struct tls_ext_supported_groups {
-	uint16_t len;
-	uint16_t groups[];
-} __attribute__((packed));
+enum tls_rec_type {
+	TLS_RT_HAND = 0x16,
+	TLS_RT_CIPHER = 0x14,
+	TLS_RT_DATA = 0x17,
+};
 
-struct tls_ext_sign_algos {
-	uint16_t len;
-	uint16_t algos[];
-} __attribute__((packed));
+enum tls_hand_type {
+	TLS_HT_CHELLO = 1,
+	TLS_HT_SHELLO = 2,
+};
 
-struct tls_ext_supported_vers {
-	uint8_t len;
-	uint16_t vers[];
-} __attribute__((packed));
-
-struct tls_ext_key_share_entry {
-	uint16_t group;
-	uint16_t klen;
-	uint8_t key[];
-} __attribute__((packed));
-
-/* client key share alone. */
-struct tls_ext_ckey_share {
-	uint16_t len;
-	uint8_t data[];
-} __attribute__((packed));
-
-struct tls_ext {
-	uint16_t type;
-	uint16_t len;
-	uint8_t data[];
-} __attribute__((packed));
-
-struct tls_exts {
-	uint16_t len;
-	uint8_t data[];
-} __attribute__((packed));
-
-struct tls_comp {
-	uint8_t len;
-	uint8_t comp[];
-} __attribute__((packed));
-
-struct tls_ciphers {
-	uint16_t len;
-	uint16_t ciphers[];
-} __attribute__((packed));
-
-struct tls_sess_id {
-	uint8_t len;
-	uint8_t id[];
-} __attribute__((packed));
-
-struct tls_chello {
-	uint16_t ver;
-	uint8_t rnd[32];
-	uint8_t data[];
-} __attribute__((packed));
-
-struct tls_shello {
-	uint16_t ver;
-	uint8_t rnd[32];
-	uint8_t data[];
-} __attribute__((packed));
-
-struct tls_hand {
+struct tls_hand_hw {
 	uint8_t type;
 	uint8_t lenhi;
 	uint16_t lenlo;
-	uint8_t data[];
 } __attribute__((packed));
 
-struct tls_rec {
+struct tls_rec_hw {
 	uint8_t type;
 	uint16_t ver;
 	uint16_t len;
-	uint8_t data[];
 } __attribute__((packed));
+
+struct tls_chello_hw {
+	uint16_t ver;
+	uint8_t rnd[32];
+	uint8_t sess_len;
+	uint16_t cipher_len;	/* Our client sends only 1 cipher. */
+	uint16_t cipher;
+	uint8_t comp_len;
+	uint8_t comp;		/* Implies comp_len must be set to 1. */
+	uint16_t exts_len;
+} __attribute__((packed));
+
+struct tls_shello_hw {
+	uint16_t ver;
+	uint8_t rnd[32];
+	uint8_t sess_len;
+	uint16_t cipher;
+	uint8_t comp;
+	uint16_t exts_len;
+} __attribute__((packed));
+
+struct tls_ext_hw {
+	uint16_t type;
+	uint16_t len;
+} __attribute__((packed));
+
+/* key share entry. */
+struct tls_kse_hw {
+	uint16_t group;
+	uint16_t klen;
+} __attribute__((packed));
+
+
+
+
+
+/* Do not use any pointers in the sw structures. */
+struct tls_ext_sw {
+	struct tls_ext_hw hw;
+	uint8_t data[0x10000];
+};
+
+struct tls_chello_sw {
+	struct tls_chello_hw hw;
+	struct tls_ext_sw exts[8];
+};
+
+struct tls_shello_sw {
+	struct tls_shello_hw hw;
+	struct tls_ext_sw exts[8];
+};
+
+struct tls_hand_sw {
+	struct tls_hand_hw hw;
+	union {
+		struct tls_chello_sw chello;
+		struct tls_shello_sw shello;
+	} u;
+};
+
+struct tls_rec_sw {
+	struct tls_rec_hw hw;
+	union {
+		struct tls_hand_sw hand;
+	} u;
+};
+
+struct tls_cli_ctx {
+	uint8_t *pubkey;
+	void *chello;
+	void *shello;
+	int chello_len;
+	int shello_len;
+	int klen;
+	int state;
+};
 #endif

@@ -18,6 +18,7 @@
 #include <sha2.h>
 #include <hmac.h>
 #include <hkdf.h>
+#include <chacha.h>
 
 // 3y^2=x^3 + 5x^2 + x mod 65537
 // (3,5) on the curve.
@@ -65,73 +66,50 @@ struct bn *bn_rand(const struct bn *m)
 	return t;
 }
 
-void tls_derive_keys(const void *shared, int slen);
+uint8_t shared[] = {
+	0x61,0x33,0xe7,0x2b,0xb7,0xea,0xd5,0xfb,0x53,0x09,0x2c,0x07,0x71,0xfb,
+	0x21,0xdf,0x3d,0x2a,0x46,0xb5,0x0a,0x07,0xe7,0x0b,0x5f,0x2a,0x8d,0xc9,
+	0x97,0x2e,0xf9,0x5b,
+};
+
+uint8_t shts[] = {
+	0xf2,0x0d,0x23,0xfa,0x9c,0x25,0xdd,0x8a,0xda,0x38,0x16,0xa3,0xa4,0x1f,
+	0xb1,0x4c,0x52,0xf7,0xd3,0xae,0x9a,0xbd,0x6b,0x8b,0x3c,0x34,0x04,0x76,
+	0x02,0xf9,0xae,0xd9,
+};
+
+uint8_t shts_key[] = {
+	0xab,0x1e,0x63,0x1d,0xb3,0xc6,0x45,0x56,0x3d,0xe5,0xe2,0xcd,0xa0,0x7d,
+	0x60,0x0c,0xd0,0xf2,0x0c,0x8b,0x17,0x63,0xe8,0x75,0xad,0x8c,0x2b,0xad,
+	0x82,0xfe,0xd7,0xab,
+};
+
+uint8_t shts_iv[] = {
+	0x28,0x65,0x6b,0xbd,0xa8,0x4e,0x72,0x8f,
+};
+uint8_t buf[4096];
 int main()
 {
-	tls_derive_keys(NULL, 0);
-}
-
-
-uint8_t buf[4096];
-int main2()
-{
-	int sock, n;
+	int n;
 	struct bn *t;
 	uint8_t *bytes;
-	struct sockaddr_in srvr = {0};
-	struct ec *ec;
-	struct bn *priv[2];
-	struct ec_point *pub[2];
-	struct ec_mont_params emp;
+	struct tls_cli_ctx *tlsc;
 
 	n = 0;
 
 	bn_init();
-	bytes = malloc(32);
-	goto parse;
 
 	t = bn_new_from_string(pub_str, 16);
 	bytes = bn_to_bytes_le(t, &n);
+	//bytes = bn_to_bytes(t, &n);
 	bn_free(t);
-
 	assert(n == 32);
-	n = tls_fill_chello(buf, 4096, bytes);
-	printf("chello %d\n", n);
 
-	sock = socket(AF_INET, SOCK_STREAM, 0);
-	srvr.sin_family = AF_INET;
-	srvr.sin_port = htons(443);
-	inet_pton(AF_INET, "127.0.0.1", &srvr.sin_addr);
-	connect(sock, (const struct sockaddr *)&srvr, sizeof(srvr));
-	send(sock, buf, n, 0);
-	n = recv(sock, buf, 4096, 0);
-	printf("recvd %d\n", n);
-	close(sock);
-parse:
-	n = tls_parse_records(buf, 0, bytes);
+	tlsc = tls_cli_new(bytes, 32);
+	tls_cli_connect(tlsc, "127.0.0.1", 443);
 
-	emp.prime = c25519_prime;
-	emp.a = c25519_a;
-	emp.b = c25519_b;
-	emp.gx = c25519_gx;
-	emp.order = c25519_order;
-	ec = ec_new_montgomery(&emp);
-
-	t = bn_new_from_bytes(bytes, 32);
-	bn_print("", t);
-	priv[0] = bn_new_from_string(priv_str, 16);	//my private key
-	pub[1] = ec_point_new(ec, t, NULL, NULL);	//their public key
-
-	ec_scale(ec, pub[1], priv[0]);	//shared secret.
-	ec_point_print(ec, pub[1]);
-
-	ec_point_free(ec, pub[1]);
-	ec_free(ec);
-	bn_free(priv[0]);
-	bn_free(t);
 	free(bytes);
 	bn_fini();
-	sleep(60000);
 	return 0;
 }
 
