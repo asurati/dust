@@ -17,14 +17,14 @@ static struct hmac_sha256_ctx hmac;
 void hkdf_sha256_extract(const void *salt, int slen, const void *ikm, int klen,
 			 uint8_t *prk)
 {
-	uint8_t buf[SHA256_DIGEST_LEN];
-
+	assert(prk);
 	assert(slen >= 0);
 
 	if (salt == NULL || slen == 0) {
-		memset(buf, 0, sizeof(buf));
-		salt = buf;
+		/* prk is assumed to be at least SHA256_DIGEST_LEN sized. */
 		slen = SHA256_DIGEST_LEN;
+		salt = prk;
+		memset(prk, 0, slen);
 	}
 
 	hmac_sha256_init(&hmac, salt, slen);
@@ -43,7 +43,7 @@ void hkdf_sha256_expand(const void *prk, int plen, const void *info, int ilen,
 	assert(plen <= SHA256_DIGEST_LEN);
 
 	for (i = 1; olen; ++i) {
-		n = olen <= SHA256_DIGEST_LEN ? olen : SHA256_DIGEST_LEN;
+		n = olen < SHA256_DIGEST_LEN ? olen : SHA256_DIGEST_LEN;
 		hmac_sha256_init(&hmac, prk, plen);
 		if (i > 1)
 			hmac_sha256_update(&hmac, dgst, sizeof(dgst));
