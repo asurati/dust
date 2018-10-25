@@ -9,6 +9,9 @@
 
 #include <stdint.h>
 
+#include <ec.h>
+#include <sha2.h>
+
 enum tls_rec_type {
 	TLS_RT_HAND = 0x16,
 	TLS_RT_CIPHER = 0x14,
@@ -95,13 +98,19 @@ struct tls_rec_sw {
 	struct tls_rec_hw hw;
 	union {
 		struct tls_hand_sw hand;
+		uint8_t data[0x1000];
 	} u;
 };
 
-struct tls_cli_ctx {
-	uint8_t *pubkey;
+struct tls_ctx {
+	uint8_t *priv, *pub[2], *shared;
 	void *chello;
 	void *shello;
+	uint8_t es[SHA256_DIGEST_LEN];
+	uint8_t hs[SHA256_DIGEST_LEN];
+	uint8_t chts[SHA256_DIGEST_LEN];
+	uint8_t shts[SHA256_DIGEST_LEN];
+	uint8_t ms[SHA256_DIGEST_LEN];
 	int chello_len;
 	int shello_len;
 	int klen;

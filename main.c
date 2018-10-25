@@ -27,27 +27,12 @@
 // (4,0x94) on the curve
 
 /* Curve25519 parameters. */
-const char *c25519_prime	=
-"7fffffffffffffff ffffffffffffffff ffffffffffffffff ffffffffffffffed";
-const char *c25519_a		= "76d06";	// hex(486662)
-const char *c25519_b		= "1";
-const char *c25519_gx		= "9";
-const char *c25519_order	=
-"1000000000000000 0000000000000000 14def9dea2f79cd6 5812631a5cf5d3ed";
-
-const char *priv_str	=
-"59effe2eb776d8e7118dda26b46cce413bfa0e2d4993acabaae91cf16c8c7d28";
-const char *pub_str	=
-"671e3b404cd8512b5077822a2e7764d614cdda6f67d3c6433ce63d5bcb132b7d";
 
 struct bn *bn_rand(const struct bn *m)
 {
 	int nbits, nbytes;
 	uint8_t *bytes;
 	struct bn *t;
-
-	t = bn_new_from_string(priv_str, 16);
-	return t;
 
 	nbits = bn_msb(m) + 1;
 	nbytes = (nbits + 7) >> 3;
@@ -90,25 +75,11 @@ uint8_t shts_iv[] = {
 uint8_t buf[4096];
 int main()
 {
-	int n;
-	struct bn *t;
-	uint8_t *bytes;
-	struct tls_cli_ctx *tlsc;
-
-	n = 0;
+	struct tls_ctx *tlsc;
 
 	bn_init();
-
-	t = bn_new_from_string(pub_str, 16);
-	bytes = bn_to_bytes_le(t, &n);
-	//bytes = bn_to_bytes(t, &n);
-	bn_free(t);
-	assert(n == 32);
-
-	tlsc = tls_cli_new(bytes, 32);
-	tls_cli_connect(tlsc, "127.0.0.1", 443);
-
-	free(bytes);
+	tlsc = tls_ctx_new();
+	tls_connect(tlsc, "127.0.0.1", 443);
 	bn_fini();
 	return 0;
 }
