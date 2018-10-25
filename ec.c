@@ -11,6 +11,16 @@
 
 #include <sys/ec.h>
 
+static struct bn *ec_mont_point_x(const struct ec_mont *ecm,
+			      const struct ec_point *a)
+{
+	struct bn *t;
+
+	t = bn_new_copy(a->x);
+	bn_from_mont(ecm->mctx, t);
+	return t;
+}
+
 static void ec_mont_point_print(const struct ec_mont *ecm,
 				const struct ec_point *a)
 {
@@ -320,6 +330,21 @@ static struct ec_point *ec_mont_gen_public(const struct ec_mont *ecm,
 
 
 
+struct bn *ec_point_x(const struct ec *ec, const struct ec_point *a)
+{
+	assert(ec != EC_INVALID);
+	assert(a != EC_POINT_INVALID);
+	assert(a->x != BN_INVALID);
+
+	switch (ec->form) {
+	case ECF_MONTGOMERY:
+		return ec_mont_point_x(&ec->u.mont, a);
+		break;
+	default:
+		assert(0);
+	}
+	return BN_INVALID;
+}
 
 void ec_point_print(const struct ec *ec, const struct ec_point *a)
 {

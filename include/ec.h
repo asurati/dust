@@ -33,10 +33,11 @@ struct ec_point	*ec_point_new_copy(const struct ec *ec,
 		 const struct ec_point *a);
 void		 ec_point_free(const struct ec *ec, struct ec_point *a);
 void		 ec_point_print(const struct ec *ec, const struct ec_point *a);
+struct bn	*ec_point_x(const struct ec *ec, const struct ec_point *a);
 
 void		 ec_scale(const struct ec *ec, struct ec_point *a,
 		 const struct bn *b);
 struct ec_point	*ec_gen_public(const struct ec *ec, const struct bn *priv);
-void		 ec_gen_shared(const struct ec *ec, const struct bn *priv,
-		 struct ec_point *pub);
+//void		 ec_gen_shared(const struct ec *ec, const struct bn *priv,
+//		 struct ec_point *pub);
 #endif
