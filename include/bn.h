@@ -26,6 +26,7 @@ struct bn	*bn_new_copy(const struct bn *b);
 struct bn	*bn_new_prob_prime(int nbits);
 
 uint8_t		*bn_to_bytes_le(const struct bn *b, int *len);
+uint8_t		*bn_to_bytes(const struct bn *b, int *len);
 
 void		 bn_free(struct bn *b);
 
