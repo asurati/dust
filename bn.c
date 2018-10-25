@@ -678,7 +678,7 @@ uint8_t *bn_to_bytes(const struct bn *b, int *len)
 	bytes = malloc(nbytes);
 	assert(bytes);
 
-	for (i = 0, j = 0; i < b->nsig; ++i) {
+	for (i = b->nsig - 1, j = 0; i >= 0; --i) {
 		bytes[j++] = b->l->l[i] >> 24;
 		bytes[j++] = b->l->l[i] >> 16;
 		bytes[j++] = b->l->l[i] >> 8;
