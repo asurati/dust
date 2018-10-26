@@ -786,6 +786,83 @@ struct bn *bn_new_from_bytes_le(const uint8_t *bytes, int len)
 	return b;
 }
 
+static char bn_from_radix(char c, int radix)
+{
+	assert(radix == 16);
+	if (c >= '0' && c <= '9')
+		c = c - '0';
+	else if (c >= 'a' && c <= 'f')
+		c = c - 'a' + 10;
+	else if (c >= 'A' && c <= 'F')
+		c = c - 'A' + 10;
+	else
+		c = -1;
+	return c;
+}
+
+static char *bn_string_cleanup(const char *str, int radix)
+{
+	int i, j;
+	char *cstr, c;
+	int len;
+
+	len = strlen(str);
+	cstr = malloc(len + 1);
+	assert(cstr);
+
+	for (i = 0, j = 0; i < len; ++i) {
+		c = str[i];
+		if (c == ' ' || c == '\t' || c == '\n' || c == '\r')
+			continue;
+		if (c == ':')
+			continue;
+
+		c = bn_from_radix(c, radix);
+		if (c == -1)
+			break;
+		cstr[j++] = str[i];
+	}
+	assert(i == len);
+	cstr[j] = 0;
+	return cstr;
+}
+
+/* Little-endian byte array string. */
+struct bn *bn_new_from_string_le(const char *str, int radix)
+{
+	int i, j, k, len, sz;
+	unsigned char c;
+	struct bn *b;
+	uint8_t *bytes;
+
+	assert(radix == 16);
+	b = BN_INVALID;
+	if (str == NULL || radix != 16)
+		return b;
+
+	str = bn_string_cleanup(str, radix);
+	assert(str);
+	len = strlen(str);
+	sz = (len + 1) >> 1;
+	bytes = malloc(sz);
+	assert(bytes);
+
+	for (i = 0, j = 0, k = 0; i < len; ++i) {
+		c = bn_from_radix(str[i], radix);
+		if (k == 0) {
+			bytes[j] = c;
+			k = 1;
+		} else {
+			bytes[j] <<= 4;
+			bytes[j++] |= c;
+			k = 0;
+		}
+	}
+	b = bn_new_from_bytes_le(bytes, j);
+	free(bytes);
+	free((char *)str);
+	return b;
+}
 
 /* The str is one large number, as written on paper (i.e. big endian). */
 struct bn *bn_new_from_string_be(const char *str, int radix)
@@ -798,35 +875,17 @@ struct bn *bn_new_from_string_be(const char *str, int radix)
 	assert(radix == 16);
 	b = BN_INVALID;
 	if (str == NULL || radix != 16)
-		goto err0;
+		return b;
 
-	/* Check valid hex strings. Allow whitespace. */
+	str = bn_string_cleanup(str, radix);
+	assert(str);
 	len = strlen(str);
-	sz = len >> 1;
-	if (len & 1)
-		++sz;
-
+	sz = (len + 1) >> 1;
 	bytes = malloc(sz);
-	if (bytes == NULL)
-		goto err0;
+	assert(bytes);
 
 	for (i = len - 1, j = sz, k = 0; i >= 0; --i) {
-		c = str[i];
-		if (c == ' ' || c == '\t' || c == '\n' || c == '\r')
-			continue;
-		if (c == ':')
-			continue;
-
-		if (c >= '0' && c <= '9')
-			c -= '0';
-		else if (c >= 'a' && c <= 'f')
-			c = c - 'a' + 10;
-		else if (c >= 'A' && c <= 'F')
-			c = c - 'A' + 10;
-		else
-			break;
-
-		/* About to write the low nibble, so initialize. */
+		c = bn_from_radix(str[i], radix);
 		if (k == 0) {
 			bytes[--j] = c;
 			k = 1;
@@ -835,13 +894,9 @@ struct bn *bn_new_from_string_be(const char *str, int radix)
 			k = 0;
 		}
 	}
-
-	if (i != -1)
-		goto err1;
 	b = bn_new_from_bytes_be(&bytes[j], sz - j);
-err1:
 	free(bytes);
-err0:
+	free((char *)str);
 	return b;
 }
 
