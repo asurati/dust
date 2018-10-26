@@ -18,9 +18,11 @@
 #include <sha2.h>
 #include <hkdf.h>
 #include <chacha.h>
+#include <aead.h>
 
 #include <sys/tls.h>
 
+/* Numbers as big-endian strings. */
 const char *c25519_prime	=
 "7fffffffffffffff ffffffffffffffff ffffffffffffffff ffffffffffffffed";
 const char *c25519_a		= "76d06";	// hex(486662)
@@ -29,74 +31,11 @@ const char *c25519_gx		= "9";
 const char *c25519_order	=
 "1000000000000000 0000000000000000 14def9dea2f79cd6 5812631a5cf5d3ed";
 
+/* Numbers as big-endian strings. */
 const char *priv_str	=
 "59effe2eb776d8e7118dda26b46cce413bfa0e2d4993acabaae91cf16c8c7d28";
 const char *pub_str	=
 "671e3b404cd8512b5077822a2e7764d614cdda6f67d3c6433ce63d5bcb132b7d";
-
-#if 0
-static struct sha256_ctx transcript;
-static uint8_t b[4096];
-/*
- * Secret is assumed to be of size == hash's digest len.
- * The output length of expand is assumed to be the same.
- */
-static void tls_derive_key(const void *secret, const char *label,
-			   uint8_t *out)
-{
-	int i;
-	uint16_t len;
-
-	i = 0;
-	len = htons(32);
-	memcpy(b + i, &len, sizeof(len));
-	i += sizeof(len);
-
-	len = 6 + strlen(label);
-	memcpy(b + i, &len, 1);
-	++i;
-	memcpy(b + i, "tls13 ", 6);
-	i += 6;
-	memcpy(b + i, label, strlen(label));
-	i += strlen(label);
-
-	len = 0;
-	memcpy(b + i, &len, 1);
-	++i;
-	len = i;
-
-	hkdf_sha256_expand(secret, SHA256_DIGEST_LEN, b, len, out,
-			   32);
-}
-
-static void tls_derive_iv(const void *secret, const char *label,
-			  uint8_t *out)
-{
-	int i;
-	uint16_t len;
-
-	i = 0;
-	len = htons(8);
-	memcpy(b + i, &len, sizeof(len));
-	i += sizeof(len);
-
-	len = 6 + strlen(label);
-	memcpy(b + i, &len, 1);
-	++i;
-	memcpy(b + i, "tls13 ", 6);
-	i += 6;
-	memcpy(b + i, label, strlen(label));
-	i += strlen(label);
-
-	len = 0;
-	memcpy(b + i, &len, 1);
-	++i;
-	len = i;
-
-	hkdf_sha256_expand(secret, SHA256_DIGEST_LEN, b, len, out,
-			   8);
-}
-#endif
 
 static void tls_hkdf_expand_label(const void *secret, const char *label,
 				  const void *thash, uint8_t *out, int olen)
@@ -177,15 +116,20 @@ void tls_derive_keys(struct tls_ctx *ctx)
 	emp.order	= c25519_order;
 
 	ec = ec_new_montgomery(&emp);
-	priv = bn_new_from_bytes(ctx->priv, ctx->klen);
-	t = bn_new_from_bytes(ctx->pub[1], ctx->klen);
+	priv = bn_new_from_bytes_le(ctx->priv, ctx->klen);
+	/*
+	 * On-Wire format is little-endian byte array, to be compatible
+	 * with (at least) OpenSSL.
+	 */
+	t = bn_new_from_bytes_le(ctx->pub[1], ctx->klen);
 	pub = ec_point_new(ec, t, NULL, NULL);
+	ec_point_print(ec, pub);
 	ec_scale(ec, pub, priv);
 	bn_free(priv);
 	bn_free(t);
 
 	t = ec_point_x(ec, pub);
-	ctx->shared = bn_to_bytes(t, &n);
+	ctx->shared = bn_to_bytes_le(t, &n);
 	assert(n == ctx->klen);
 	bn_free(t);
 	ec_point_free(ec, pub);
@@ -572,19 +516,20 @@ struct tls_ctx *tls_ctx_new()
 	ctx->klen = 32;
 	ctx->state = 0;
 
-	priv = bn_new_from_string(priv_str, 16);
-	ctx->priv = bn_to_bytes(priv, &n);
+	priv = bn_new_from_string_be(priv_str, 16);
+	ctx->priv = bn_to_bytes_le(priv, &n);
 	assert(n == 32);
 
 	ec = ec_new_montgomery(&emp);
 	pub = ec_gen_public(ec, priv);
 	t = ec_point_x(ec, pub);
-	ctx->pub[0] = bn_to_bytes(t, &n);
-	assert(n == 32);
+
 	/*
-	 * We need to change the endiannce of the public key and check
-	 * the encryption.
+	 * On-Wire format is little-endian byte array, to be compatible
+	 * with (at least) OpenSSL.
 	 */
+	ctx->pub[0] = bn_to_bytes_le(t, &n);
+	assert(n == 32);
 
 	bn_free(t);
 	ec_point_free(ec, pub);
@@ -593,19 +538,22 @@ struct tls_ctx *tls_ctx_new()
 	return ctx;
 }
 
-void tls_decipher_data(struct tls_ctx *ctx, uint8_t *buf, size_t len)
+static void tls_decipher_data(struct tls_ctx *ctx, const struct tls_rec_hw *hw,
+			      uint8_t *buf, size_t len)
 {
 	int i;
+	uint8_t data[60];
 	uint8_t key[32];
-	uint8_t iv[8];
-	struct chacha20_ctx dec;
+	uint8_t iv[12];
 
 	tls_hkdf_expand_label(ctx->shts, "key", NULL, key, 32);
-	tls_hkdf_expand_label(ctx->shts, "iv", NULL, iv, 8);
+	tls_hkdf_expand_label(ctx->shts, "iv", NULL, iv, 12);
 
-	chacha20_init(&dec, key, 32, iv);
-	chacha20_dec(&dec, buf, buf, len);
-	for (i = 0; i < (int)len; ++i)
+	iv[11] ^= 4;
+
+	assert(sizeof(*hw) == 5);
+	aead_dec(key, iv, buf, len, hw, sizeof(*hw), data);
+	for (i = 0; i < (int)len-16; ++i)
 		printf("%02x ", buf[i]);
 	printf("\n");
 	assert(0);
@@ -643,6 +591,7 @@ int tls_connect(struct tls_ctx *ctx, const char *ip, short port)
 	f = fopen("/tmp/shello", "wb");
 	fwrite(buf, 1, n, f);
 	fclose(f);
+	goto parse;
 parse:
 	f = fopen("/tmp/shello", "rb");
 	n = fread(buf, 1, 4096, f);
@@ -653,7 +602,8 @@ parse:
 		sw = tls_deserialize_rec(buf, len);
 		n = sw->hw.len + sizeof(sw->hw);
 		if (sw->hw.type == TLS_RT_DATA) {
-			tls_decipher_data(ctx, sw->u.data, sw->hw.len);
+			tls_decipher_data(ctx, &sw->hw, sw->u.data,
+					  sw->hw.len);
 		}
 
 		if (sw->hw.type == TLS_RT_HAND &&
@@ -682,3 +632,136 @@ parse:
 
 	return 0;
 }
+
+//https://tlswg.github.io/draft-ietf-tls-tls13-vectors/draft-ietf-tls-tls13-vectors.html#rfc.section.3
+const char *chello_str=
+"01 00 00 c0 03 03 66 60 26 1f f9 47 ce a4 9c ce 6c fa d6 87 f4 57 cf 1b 14 53 1b a1 41 31 a0 e8 f3 09 a1 d0 b9 c4 00 00 06 13 01 13 03 13 02 01 00 00 91 00 00 00 0b 00 09 00 00 06 73 65 72 76 65 72 ff 01 00 01 00 00 0a 00 14 00 12 00 1d 00 17 00 18 00 19 01 00 01 01 01 02 01 03 01 04 00 23 00 00 00 33 00 26 00 24 00 1d 00 20 4c fd fc d1 78 b7 84 bf 32 8c ae 79 3b 13 6f 2a ed ce 00 5f f1 83 d7 bb 14 95 20 72 36 64 70 37 00 2b 00 03 02 03 04 00 0d 00 20 00 1e 04 03 05 03 06 03 02 03 08 04 08 05 08 06 04 01 05 01 06 01 02 01 04 02 05 02 06 02 02 02 00 2d 00 02 01 01 00 1c 00 02 40 01";
+
+const char *shello_str=
+"02 00 00 56 03 03 12 74 99 14 95 cf 42 58 57 26 2d de 22 99 34 2c 31 5a fb a9 b6 4a 87 d5 52 51 56 14 e0 1b 04 5d 00 13 01 00 00 2e 00 33 00 24 00 1d 00 20 c7 bb 6b df c2 63 50 b9 29 a0 8a 41 a7 6d da c2 10 b0 96 86 8d 96 0c 48 45 98 7d c3 a7 fa 65 0a 00 2b 00 02 03 04";
+
+const char *cli_priv_le = "70 a1 a8 f4 91 e8 2d 53 05 42 c6 d7 a8 dc d8 cf a9 e3 1f 59 bb 33 6b 55 0b 13 bf e1 99 f5 42 45";
+const char *srv_pub_le = "c7 bb 6b df c2 63 50 b9 29 a0 8a 41 a7 6d da c2 10 b0 96 86 8d 96 0c 48 45 98 7d c3 a7 fa 65 0a";
+
+const char *salt_str = "6f2615a108c702c5678f54fc9dbab69716c076189c48250cebeac3576c3611ba";
+void tls_test()
+{
+	int i, n, len;
+	uint8_t dgst[SHA256_DIGEST_LEN];
+	uint8_t hs[SHA256_DIGEST_LEN];
+	struct sha256_ctx hctx;
+	struct ec *ec;
+	struct ec_point *pub[2];
+	struct bn *t, *priv;
+	struct ec_mont_params emp;
+	uint8_t *buf, *salt, *shared;
+	uint8_t key[32];
+	uint8_t iv[12];
+
+	emp.prime	= c25519_prime;
+	emp.a		= c25519_a;
+	emp.b		= c25519_b;
+	emp.gx		= c25519_gx;
+	emp.order	= c25519_order;
+
+	ec = ec_new_montgomery(&emp);
+
+	priv = bn_new_from_string_le(cli_priv_le, 16);
+	//bn_print("", priv);
+
+	pub[0] = ec_gen_public(ec, priv);
+	//ec_point_print(ec, pub[0]);
+
+	/*
+	 * Server's x25519 key share arrives in the little-endian byte-array
+	 * form on the network.
+	 */
+	t = bn_new_from_string_le(srv_pub_le, 16);
+	bn_print("pub1: ", t);
+	pub[1] = ec_point_new(ec, t, NULL, NULL);
+	bn_free(t);
+	ec_scale(ec, pub[1], priv);
+	ec_point_print(ec, pub[1]);
+
+	/*
+	 * ECHDE salt is calculated through the key schedule. We have it
+	 * pre-saved in a big-endian string form. The byte-array should
+	 * contain the salt in a big-endian form, as this was calculated
+	 * by sha256, a big-endian hash.
+	 */
+	t = bn_new_from_string_be(salt_str, 16);
+	salt = bn_to_bytes_be(t, &n);
+	for (i = 0; i < SHA256_DIGEST_LEN; ++i)
+		printf("%02x", salt[i]);
+	printf("\n");
+	bn_free(t);
+
+	/*
+	 * The shared secret. Needs to be converted into little-endian
+	 * byte array before processing.
+	 */
+	t = ec_point_x(ec, pub[1]);
+	bn_print("", t);
+	shared = bn_to_bytes_le(t, &n);
+	hkdf_sha256_extract(salt, 32, shared, 32, hs);
+	/*
+	 * The digest is in big-endian form, as required. The hkdf needs
+	 * their inputs in little-endian array, but their outputs can be
+	 * used as they are.
+	 */
+	for (i = 0; i < SHA256_DIGEST_LEN; ++i)
+		printf("%02x", hs[i]);
+	printf("\n");
+	bn_free(t);
+
+
+	sha256_init(&hctx);
+	t = bn_new_from_string_be(chello_str, 16);
+	shared = bn_to_bytes_be(t, &n);
+	printf("%d\n", n);
+	sha256_update(&hctx, shared, n);
+	t = bn_new_from_string_be(shello_str, 16);
+	shared = bn_to_bytes_be(t, &n);
+	printf("%d\n", n);
+	sha256_update(&hctx, shared, n);
+	sha256_final(&hctx, dgst);
+	/* Again, dgst from sha256 can be used as it is. */
+
+	for (i = 0; i < SHA256_DIGEST_LEN; ++i)
+		printf("%02x", dgst[i]);
+	printf("\n");
+
+	//tls_derive_secret(hs, "c hs traffic", dgst, dgst);
+	/* The output again is hkdf's. So can be used as it is. */
+	//for (i = 0; i < SHA256_DIGEST_LEN; ++i)
+	//	printf("%02x", dgst[i]);
+	//printf("\n");
+
+	tls_derive_secret(hs, "s hs traffic", dgst, dgst);
+	for (i = 0; i < SHA256_DIGEST_LEN; ++i)
+		printf("%02x", dgst[i]);
+	printf("\n");
+
+	memcpy(hs, dgst, sizeof(dgst));
+
+	tls_hkdf_expand_label(hs, "key", NULL, key, 32);
+	tls_hkdf_expand_label(hs, "iv", NULL, iv, 12);
+	for (i = 0; i < 16; ++i)
+		printf("%02x", key[i]);
+	printf("\n");
+
+
+
+	ec_point_free(ec, pub[0]);
+	ec_point_free(ec, pub[1]);
+	bn_free(priv);
+	bn_free(t);
+
+	assert(0);
+	(void)n;
+	(void)key;
+	(void)len;
+	(void)buf;
+	(void)dgst;
+}
+

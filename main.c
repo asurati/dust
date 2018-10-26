@@ -51,54 +51,19 @@ struct bn *bn_rand(const struct bn *m)
 	return t;
 }
 
-const char *key =
-"808182838485868788898a8b8c8d8e8f"
-"909192939495969798999a9b9c9d9e9f";
-
-const char *ivs =
-"070000004041424344454647";
-
-const char *msg =
-"Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
-
-const uint8_t aad[] = {
-	0x50,0x51,0x52,0x53,0xc0,0xc1,0xc2,0xc3,0xc4,0xc5,0xc6,0xc7
-};
-
-uint8_t buf[4096];
-int main()
-{
-	int n;
-	uint8_t *k, *iv;
-	struct bn *t;
-
-	bn_init();
-	t = bn_new_from_string_be(key, 16);
-	k = bn_to_bytes_be(t, &n);
-	bn_free(t);
-	t = bn_new_from_string_be(ivs, 16);
-	iv = bn_to_bytes_be(t, &n);
-	bn_free(t);
-
-	n = strlen(msg);
-	aead_enc(k, iv, msg, n, aad, sizeof(aad), buf);
-	aead_dec(k, iv, buf, n + 16, aad, sizeof(aad), buf);
-
-	bn_fini();
-	return 0;
-}
-
-#if 0
 int main()
 {
 	struct tls_ctx *tlsc;
 	bn_init();
+	int tls_test();
+	tls_test();
+	return 0;
 	tlsc = tls_ctx_new();
 	tls_connect(tlsc, "127.0.0.1", 443);
 	bn_fini();
 	return 0;
 }
-#endif
+
 #if 0
 /*
  * The numbers given below in the vector are in little endian format.
