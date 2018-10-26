@@ -166,6 +166,7 @@ void sha256_final(struct sha256_ctx *ctx, uint8_t *bytes)
 
 	mask = ((uint64_t)1 << 9) - 1;
 	k = nbits & mask;
+	assert(k);
 	k = 512 - k;	/* # of zeroes to append. */
 
 	byte = 0x80;
