@@ -10,48 +10,44 @@
 #include <sys/chacha.h>
 
 const char *sigma = "expand 32-byte k";
-const char *tau = "expand 16-byte k";
 
 /* TODO endianness, overflow. */
 
-void chacha20_init(struct chacha20_ctx *ctx, const void *key, int klen,
-		   const void *nonce)
+/*
+ * Conforms to RFC 7539, and not the original ChaCha spec.
+ * That is, 32 bytes key, 96-bit noce, 32-bit blk counter.
+ */
+void chacha20_init(struct chacha20_ctx *ctx, const uint8_t *key,
+		   const void *nonce, uint32_t blk)
 {
 	struct chacha20 *c = (struct chacha20 *)ctx;
-	const uint32_t *cnst;
-	const uint32_t *k = key;
+	const uint32_t *cnst = (const uint32_t *)sigma;
+	const uint32_t *k = (const uint32_t *)key;
 	const uint32_t *n = nonce;
 
 	assert(sizeof(*c) == sizeof(*ctx));
-	assert(klen == 32 || klen == 16);
 	assert(c);
 	assert(key);
 	assert(nonce);
 
-	c->state[4] = k[0];
-	c->state[5] = k[1];
-	c->state[6] = k[2];
-	c->state[7] = k[3];
-	if (klen == 32) {
-		cnst = (const uint32_t *)sigma;
-		k += 4;
-	} else {
-		cnst = (const uint32_t *)tau;
-	}
-	c->state[8] = k[0];
-	c->state[9] = k[1];
-	c->state[10] = k[2];
-	c->state[11] = k[3];
+	c->state[0]	= cnst[0];
+	c->state[1]	= cnst[1];
+	c->state[2]	= cnst[2];
+	c->state[3]	= cnst[3];
 
-	c->state[0] = cnst[0];
-	c->state[1] = cnst[1];
-	c->state[2] = cnst[2];
-	c->state[3] = cnst[3];
+	c->state[4]	= k[0];
+	c->state[5]	= k[1];
+	c->state[6]	= k[2];
+	c->state[7]	= k[3];
+	c->state[8]	= k[4];
+	c->state[9]	= k[5];
+	c->state[10]	= k[6];
+	c->state[11]	= k[7];
 
-	c->state[12] = 0;
-	c->state[13] = 0;
-	c->state[14] = n[0];
-	c->state[15] = n[1];
+	c->state[12]	= blk;
+	c->state[13]	= n[0];
+	c->state[14]	= n[1];
+	c->state[15]	= n[2];
 
 	/* Nothing left in the stream. */
 	c->ix = 64;
@@ -91,13 +87,12 @@ static void chacha20_block(struct chacha20 *c)
 		QR(stream, 3, 4, 9, 14);
 	}
 
+
 	for (i = 0; i < 16; ++i)
 		stream[i] += c->state[i];
 
 	++c->state[12];
-	if (c->state[12] == 0)
-		++c->state[13];
-	assert(c->state[12] || c->state[13]);
+	assert(c->state[12]);
 }
 
 void chacha20_enc(struct chacha20_ctx *ctx, const void *in, void *out, int len)
