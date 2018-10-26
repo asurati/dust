@@ -45,13 +45,14 @@ static void ec_mont_point_free(struct ec_point *a)
 	free(a);
 }
 
-
 /* TODO check validity of a as a point on the curve. */
-static struct ec_point *ec_mont_point_new(const struct bn *x,
+static struct ec_point *ec_mont_point_new(const struct ec_mont *ecm,
+					  const struct bn *x,
 					  const struct bn *y,
 					  const struct bn *z)
 {
 	struct ec_point *b;
+
 	b = malloc(sizeof(*b));
 	assert(b);
 	b->x = bn_new_copy(x);
@@ -59,6 +60,8 @@ static struct ec_point *ec_mont_point_new(const struct bn *x,
 		b->z = bn_new_copy(z);
 	else
 		b->z = bn_new_from_int(1);
+	bn_to_mont(ecm->mctx, b->x);
+	bn_to_mont(ecm->mctx, b->z);
 	return b;
 	(void)y;
 }
@@ -119,13 +122,13 @@ static struct ec *ec_mont_new(const struct ec_mont_params *p)
 	 * The rest are converted into the Montgomery form.
 	 */
 
-	t[0] = bn_new_from_string(p->prime, 16);
-	t[1] = bn_new_from_string(p->a, 16);
-	t[2] = bn_new_from_string(p->b, 16);
-	t[3] = bn_new_from_string(p->gx, 16);
+	t[0] = bn_new_from_string_be(p->prime, 16);
+	t[1] = bn_new_from_string_be(p->a, 16);
+	t[2] = bn_new_from_string_be(p->b, 16);
+	t[3] = bn_new_from_string_be(p->gx, 16);
 	t[4] = bn_new_from_int(1);
-	t[5] = bn_new_from_string(p->order, 16);
-	t[6] = bn_new_from_string(p->a, 16);
+	t[5] = bn_new_from_string_be(p->order, 16);
+	t[6] = bn_new_from_string_be(p->a, 16);
 	t[7] = bn_new_from_int(2);
 	t[8] = bn_new_from_int(4);
 
@@ -268,7 +271,7 @@ static void ec_mont_point_normalize(const struct ec_mont *ecm,
 	bn_mod(a->x, ecm->prime);
 
 	bn_free(a->z);
-	a->z = bn_new_from_string("1", 16);
+	a->z = bn_new_from_string_be("1", 16);
 
 	bn_to_mont(ecm->mctx, a->x);
 	bn_to_mont(ecm->mctx, a->z);
@@ -378,7 +381,7 @@ struct ec_point	*ec_point_new(const struct ec *ec, const struct bn *x,
 	assert(ec != EC_INVALID);
 	switch (ec->form) {
 	case ECF_MONTGOMERY:
-		return ec_mont_point_new(x, y, z);
+		return ec_mont_point_new(&ec->u.mont, x, y, z);
 		break;
 	default:
 		assert(0);
