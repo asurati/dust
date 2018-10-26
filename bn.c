@@ -659,8 +659,8 @@ struct bn *bn_new_copy(const struct bn *b)
 /* TODO sign. */
 uint8_t *bn_to_bytes_be(const struct bn *b, int *len)
 {
-	int nbytes, i, j;
-	uint8_t *bytes;
+	int nbytes, i, j, z;
+	uint8_t *bytes, t[4];
 
 	assert(b != BN_INVALID);
 	assert(len != NULL);
@@ -678,15 +678,31 @@ uint8_t *bn_to_bytes_be(const struct bn *b, int *len)
 	bytes = malloc(nbytes);
 	assert(bytes);
 
-	for (i = b->nsig - 1, j = 0; i >= 0; --i) {
+	/* l[nsig-1] is not 0. So, there is at least one non-zero byte. */
+
+	z = 1;	/* Skip zeroes. */
+	j = 0;
+	i = b->nsig - 1;
+	t[0] = b->l->l[i] >> 24;
+	t[1] = b->l->l[i] >> 16;
+	t[2] = b->l->l[i] >> 8;
+	t[3] = b->l->l[i];
+
+	for (i = 0, j = 0; i < 4; ++i) {
+		if (z && t[i] == 0)
+			continue;
+		z = 0;
+		bytes[j++] = t[i];
+	}
+
+	for (i = b->nsig - 2; i >= 0; --i) {
 		bytes[j++] = b->l->l[i] >> 24;
 		bytes[j++] = b->l->l[i] >> 16;
 		bytes[j++] = b->l->l[i] >> 8;
 		bytes[j++] = b->l->l[i];
 	}
 
-	assert(nbytes == j);
-	*len = nbytes;
+	*len = j;
 	return bytes;
 }
 
@@ -719,8 +735,12 @@ uint8_t *bn_to_bytes_le(const struct bn *b, int *len)
 		bytes[j++] = b->l->l[i] >> 24;
 	}
 
-	assert(nbytes == j);
-	*len = nbytes;
+	for (i = j - 1; i >= 0; --i)
+		if (bytes[i])
+			break;
+	++i;
+
+	*len = i;
 	return bytes;
 }
 
