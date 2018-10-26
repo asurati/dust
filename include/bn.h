@@ -20,13 +20,15 @@ void		 bn_fini();
 
 struct bn	*bn_new_zero();
 struct bn	*bn_new_from_int(int v);
-struct bn	*bn_new_from_bytes(const uint8_t *bytes, int len);
-struct bn	*bn_new_from_string(const char *str, int radix);
+struct bn	*bn_new_from_bytes_be(const uint8_t *bytes, int len);
+struct bn	*bn_new_from_bytes_le(const uint8_t *bytes, int len);
+struct bn	*bn_new_from_string_be(const char *str, int radix);
+struct bn	*bn_new_from_string_le(const char *str, int radix);
 struct bn	*bn_new_copy(const struct bn *b);
 struct bn	*bn_new_prob_prime(int nbits);
 
 uint8_t		*bn_to_bytes_le(const struct bn *b, int *len);
-uint8_t		*bn_to_bytes(const struct bn *b, int *len);
+uint8_t		*bn_to_bytes_be(const struct bn *b, int *len);
 
 void		 bn_free(struct bn *b);
 

@@ -657,7 +657,7 @@ struct bn *bn_new_copy(const struct bn *b)
 }
 
 /* TODO sign. */
-uint8_t *bn_to_bytes(const struct bn *b, int *len)
+uint8_t *bn_to_bytes_be(const struct bn *b, int *len)
 {
 	int nbytes, i, j;
 	uint8_t *bytes;
@@ -731,7 +731,7 @@ uint8_t *bn_to_bytes_le(const struct bn *b, int *len)
  *
  * The least significant limb is at index 0.
  */
-struct bn *bn_new_from_bytes(const uint8_t *bytes, int len)
+struct bn *bn_new_from_bytes_be(const uint8_t *bytes, int len)
 {
 	int i, j, k, nlimbs;
 	struct bn *b;
@@ -763,8 +763,32 @@ struct bn *bn_new_from_bytes(const uint8_t *bytes, int len)
 	return b;
 }
 
+struct bn *bn_new_from_bytes_le(const uint8_t *bytes, int len)
+{
+	int i;
+	uint8_t *cb, t;
+	struct bn *b;
+
+	b = BN_INVALID;
+	if (bytes == NULL || len <= 0)
+		return b;
+
+	cb = malloc(len);
+	assert(cb);
+	memcpy(cb, bytes, len);
+	for (i = 0; i < len >> 1; ++i) {
+		t = cb[i];
+		cb[i] = cb[len - i - 1];
+		cb[len - i - 1] = t;
+	}
+	b = bn_new_from_bytes_be(cb, len);
+	free(cb);
+	return b;
+}
+
+
 /* The str is one large number, as written on paper (i.e. big endian). */
-struct bn *bn_new_from_string(const char *str, int radix)
+struct bn *bn_new_from_string_be(const char *str, int radix)
 {
 	int i, j, k, len, sz;
 	unsigned char c;
@@ -790,6 +814,8 @@ struct bn *bn_new_from_string(const char *str, int radix)
 		c = str[i];
 		if (c == ' ' || c == '\t' || c == '\n' || c == '\r')
 			continue;
+		if (c == ':')
+			continue;
 
 		if (c >= '0' && c <= '9')
 			c -= '0';
@@ -812,7 +838,7 @@ struct bn *bn_new_from_string(const char *str, int radix)
 
 	if (i != -1)
 		goto err1;
-	b = bn_new_from_bytes(&bytes[j], sz - j);
+	b = bn_new_from_bytes_be(&bytes[j], sz - j);
 err1:
 	free(bytes);
 err0:
@@ -1632,7 +1658,7 @@ struct bn *bn_new_prob_prime(int nbits)
 //	n = bn_new_from_string("cedbe242489741652735efb448dc4105", 16);
 //	n = bn_new_from_string("3fc237c0331dc23265e6e2c76af63bef", 16);
 
-	n = bn_new_from_bytes(bytes, nbytes);
+	n = bn_new_from_bytes_be(bytes, nbytes);
 	if (n == BN_INVALID)
 		goto err1;
 
