@@ -15,7 +15,7 @@
 struct ec;
 struct ec_point;
 
-/* All strings store numbers in hex. */
+/* All strings store numbers in hex in big-endian form. */
 struct ec_mont_params {
 	const char *prime;
 	const char *a;
