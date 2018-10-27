@@ -59,8 +59,8 @@ void aead_dec(const uint8_t* key, const uint8_t *nonce, const void *msg,
 	/* Generate mac. */
 	aead_mac(otk, msg, mlen - 16, aad, alen, otk);
 
-	/* Compare. */
-	assert(memcmp(otk, out + mlen - 16, 16) == 0);
+	/* Not-a-constant-time compare. */
+	assert(memcmp(otk, (const uint8_t *)msg + mlen - 16, 16) == 0);
 
 	/* Decrypt the data. */
 	chacha20_init(&ctx, key, nonce, 1);
