@@ -50,8 +50,8 @@ static void tls_hkdf_expand_label(const void *secret, const char *label,
 	*(uint16_t *)info = len;
 	i += sizeof(len);
 
-	/* TODO overflow */
 	n = strlen(label);
+	assert(n > 0 && n <= 12);
 	len = 6 + n;
 	*(uint8_t *)(&info[i]) = (uint8_t)len;
 	++i;
@@ -89,16 +89,7 @@ static void tls_derive_secret(const void *secret, const char *label,
 	tls_hkdf_expand_label(secret, label, thash, out, SHA256_DIGEST_LEN);
 }
 
-#if 0
 // https://github.com/project-everest/ci-logs/blob/master/everest-test-10b31d91-20801.all
-static const uint8_t sh[32] = {
-	0x67,0x32,0x85,0x96,0x5d,0xfa,0x28,0xcd,
-	0x80,0x2f,0x14,0x83,0x87,0x0a,0x1c,0xf7,
-	0x2b,0x92,0x61,0x7b,0xc1,0xda,0x14,0xec,
-	0x16,0xe4,0xd3,0x9b,0x6b,0xfa,0x24,0x72,
-};
-#endif
-
 void tls_derive_keys(struct tls_ctx *ctx)
 {
 	int i, n;
@@ -117,18 +108,23 @@ void tls_derive_keys(struct tls_ctx *ctx)
 
 	ec = ec_new_montgomery(&emp);
 	priv = bn_new_from_bytes_le(ctx->priv, ctx->klen);
+
 	/*
-	 * On-Wire format is little-endian byte array, to be compatible
-	 * with (at least) OpenSSL.
+	 * Server's x25519 key share arrives in the little-endian byte-array
+	 * form on the network.
 	 */
 	t = bn_new_from_bytes_le(ctx->pub[1], ctx->klen);
+	bn_print("pub:", t);
 	pub = ec_point_new(ec, t, NULL, NULL);
-	ec_point_print(ec, pub);
 	ec_scale(ec, pub, priv);
 	bn_free(priv);
 	bn_free(t);
-
 	t = ec_point_x(ec, pub);
+
+	/*
+	 * Shared secret needs to be converted to little-endian byte-array
+	 * before utilizing.
+	 */
 	ctx->shared = bn_to_bytes_le(t, &n);
 	assert(n == ctx->klen);
 	bn_free(t);
@@ -140,25 +136,28 @@ void tls_derive_keys(struct tls_ctx *ctx)
 	/* Early Secret. */
 	hkdf_sha256_extract(NULL, 0, dgst, sizeof(dgst), ctx->es);
 	/* 33ad0a1c607ec03b09e6cd9893680ce210adf300aa1f2660e1b22e10f170f92a */
+	printf("early:");
 	for (i = 0; i < SHA256_DIGEST_LEN; ++i)
 		printf("%02x", ctx->es[i]);
 	printf("\n");
 
 	/*
 	 * Salt for ECDHE extract. Transcript sent is empty. So thash is the
-	 * hash of the empty string.
+	 * hash of the empty string. The result can be used as it is.
 	 */
 	sha256_init(&hctx);
 	sha256_final(&hctx, dgst);
 	tls_derive_secret(ctx->es, "derived", dgst, dgst);
 	/* 6f2615a108c702c5678f54fc9dbab69716c076189c48250cebeac3576c3611ba */
+	printf("ecdhe salt:");
 	for (i = 0; i < SHA256_DIGEST_LEN; ++i)
 		printf("%02x", dgst[i]);
 	printf("\n");
 
-	/* ECDHE extract == Handshake secret. */
+	/* ECDHE extract == Handshake secret. Can be used as it is. */
 	hkdf_sha256_extract(dgst, sizeof(dgst), ctx->shared, ctx->klen,
 			    ctx->hs);
+	printf("hs:");
 	for (i = 0; i < SHA256_DIGEST_LEN; ++i)
 		printf("%02x", ctx->hs[i]);
 	printf("\n");
@@ -169,10 +168,19 @@ void tls_derive_keys(struct tls_ctx *ctx)
 	sha256_update(&hctx, (char *)ctx->chello + n, ctx->chello_len - n);
 	sha256_update(&hctx, (char *)ctx->shello + n, ctx->shello_len - n);
 	sha256_final(&hctx, dgst);
+	/* The hash of the transcript. Use as it is. */
+
 	tls_derive_secret(ctx->hs, "c hs traffic", dgst, ctx->chts);
+	printf("chts:");
+	for (i = 0; i < SHA256_DIGEST_LEN; ++i)
+		printf("%02x", ctx->chts[i]);
+	printf("\n");
 	tls_derive_secret(ctx->hs, "s hs traffic", dgst, ctx->shts);
+	printf("shts:");
+	for (i = 0; i < SHA256_DIGEST_LEN; ++i)
+		printf("%02x", ctx->shts[i]);
+	printf("\n");
 	return;
-	// https://tlswg.github.io/draft-ietf-tls-tls13-vectors/draft-ietf-tls-tls13-vectors.html#rfc.section.3
 }
 
 /* XXX: Allow a max of 8 extensions. */
@@ -523,11 +531,7 @@ struct tls_ctx *tls_ctx_new()
 	ec = ec_new_montgomery(&emp);
 	pub = ec_gen_public(ec, priv);
 	t = ec_point_x(ec, pub);
-
-	/*
-	 * On-Wire format is little-endian byte array, to be compatible
-	 * with (at least) OpenSSL.
-	 */
+	/* On-Wire format is little-endian byte array. */
 	ctx->pub[0] = bn_to_bytes_le(t, &n);
 	assert(n == 32);
 
@@ -538,6 +542,24 @@ struct tls_ctx *tls_ctx_new()
 	return ctx;
 }
 
+/*
+     X25519 Private-Key:
+     priv:
+         20:f7:bc:24:6f:dd:be:70:10:7c:40:18:9b:06:ff:
+         27:79:77:32:27:2c:1b:f0:a9:15:79:e6:62:48:00:
+         09:49
+     pub:
+         e3:3a:59:4b:e6:fb:29:bb:41:45:77:16:5b:b8:e5:
+         80:2b:71:a0:fc:9d:45:c0:6a:27:89:45:27:57:61:
+         70:0e
+key:05fdd51e726270430fc321267a4d5683a4572b6867a478c20f608df050e026f4
+iv:c9367e4bbab227886e468c23
+key:b6dc4f6da0805f0751770d6a71402b1fa831d43b81f70c471d9d89bad9c07635
+iv:ba5071ad55548d42c6d08300
+key:9967fca75d10bfc07052161d8c5dbd7ba1674e5ef53f92d5bd86b56203bc30b8
+iv:d08a974ece193316e0d9c24e
+*/
+
 static void tls_decipher_data(struct tls_ctx *ctx, const struct tls_rec_hw *hw,
 			      uint8_t *buf, size_t len)
 {
@@ -545,18 +567,30 @@ static void tls_decipher_data(struct tls_ctx *ctx, const struct tls_rec_hw *hw,
 	uint8_t data[60];
 	uint8_t key[32];
 	uint8_t iv[12];
+	struct tls_rec_hw rhw;
+	static int sequence = 0;
 
 	tls_hkdf_expand_label(ctx->shts, "key", NULL, key, 32);
 	tls_hkdf_expand_label(ctx->shts, "iv", NULL, iv, 12);
+	printf("key:");
+	for (i = 0; i < 32; ++i)
+		printf("%02x", key[i]);
+	printf("\n");
+	printf("iv:");
+	for (i = 0; i < 12; ++i)
+		printf("%02x", iv[i]);
+	printf("\n");
 
-	iv[11] ^= 4;
+	rhw = *hw;
+	rhw.ver = htons(rhw.ver);
+	rhw.len = htons(rhw.len);
+	iv[11] ^= sequence++;
 
 	assert(sizeof(*hw) == 5);
-	aead_dec(key, iv, buf, len, hw, sizeof(*hw), data);
-	for (i = 0; i < (int)len-16; ++i)
-		printf("%02x ", buf[i]);
+	aead_dec(key, iv, buf, len, &rhw, sizeof(rhw), data);
+	for (i = 0; i < (int)len - 16; ++i)
+		printf("%02x ", data[i]);
 	printf("\n");
-	assert(0);
 }
 
 int tls_connect(struct tls_ctx *ctx, const char *ip, short port)

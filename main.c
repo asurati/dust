@@ -55,9 +55,6 @@ int main()
 {
 	struct tls_ctx *tlsc;
 	bn_init();
-	int tls_test();
-	tls_test();
-	return 0;
 	tlsc = tls_ctx_new();
 	tls_connect(tlsc, "127.0.0.1", 443);
 	bn_fini();
