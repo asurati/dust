@@ -10,8 +10,7 @@
 #include <bn.h>
 #include <poly1305.h>
 
-struct poly1305
-{
+struct poly1305 {
 	struct bn *prime;
 	struct bn *acc;
 	struct bn *r;
