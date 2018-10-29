@@ -12,6 +12,7 @@
 
 #include <rndm.h>
 
+/* Returns a big-endian byte-array. */
 void rndm_fill(void *bytes, int nbits)
 {
 	int len, i;
@@ -28,6 +29,7 @@ void rndm_fill(void *bytes, int nbits)
 	p = bytes;
 	memset(p, 0, len);
 
+	/* Not cryptographically secure. */
 	clock_gettime(CLOCK_REALTIME, &tp);
 	srand(tp.tv_nsec);
 
