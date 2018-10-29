@@ -4,7 +4,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 
-CC  := gcc
+# Makefile for GNU Make
+
+ifeq ($(ARCH), ppc)
+	CC := powerpc-linux-gnu-gcc
+else
+	CC := gcc
+endif
+
 BIN := dust
 
 CFLAGS := -c -I ./include -MMD -MP
@@ -15,6 +22,9 @@ CFLAGS += -fstack-protector-strong
 CFLAGS += -g -O0
 
 LDFLAGS := -flto
+ifeq ($(ARCH), ppc)
+	LDFLAGS += -static
+endif
 
 CSRC := $(wildcard *.c)
 DEP := $(CSRC:.c=.d)
