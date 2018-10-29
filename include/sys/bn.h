@@ -72,4 +72,16 @@ struct bn_ctx_mont {
 	struct bn *factor;	/* = (rr' - 1) / m. */
 	struct bn *one;		/* 1 in Montgomery form for the given m. */
 };
+
+static inline int bn_bsr(limb_t v)
+{
+	int msb;
+#ifdef __powerpc__
+	asm volatile("cntlz %0, %1\t\n" : "=r" (msb) : "r" (v));
+	msb = LIMB_BITS - msb - 1;
+#else
+	asm volatile("bsr %1, %0\t\n" : "=r" (msb) : "r" (v));
+#endif
+	return msb;
+}
 #endif

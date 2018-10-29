@@ -116,8 +116,7 @@ static struct limbs *bn_pool_get_limbs(struct bn_pool *p, int n)
 	if (n == 0)
 		return BN_LIMBS_INVALID;
 
-	/* XXX arch specific. */
-	asm volatile("bsr %1, %0\t\n" : "=r" (i) : "r" (n));
+	i = bn_bsr((limb_t)n);
 	if ((1 << i) != n)
 		++i;
 
@@ -149,8 +148,7 @@ static void bn_pool_put_limbs(struct bn_pool *p, struct limbs *tl)
 
 	assert(tl != BN_LIMBS_INVALID);
 
-	/* XXX arch specific. */
-	asm volatile("bsr %1, %0\t\n" : "=r" (i) : "r" (tl->n));
+	i = bn_bsr((limb_t)tl->n);
 	if ((1 << i) != tl->n)
 		++i;
 
@@ -274,14 +272,6 @@ static void bn_rev_limbs(struct bn *b)
 		b->l->l[i] = b->l->l[b->nsig - i - 1];
 		b->l->l[b->nsig - i - 1] = t;
 	}
-}
-
-/* TODO arch specific bsr. */
-static int bn_bsr(limb_t v)
-{
-	int msb;
-	asm volatile("bsr %1, %0\t\n" : "=r" (msb) : "r" (v));
-	return msb;
 }
 
 int bn_msb(const struct bn *b)
@@ -838,7 +828,7 @@ static char *bn_string_cleanup(const char *str, int radix)
 			continue;
 
 		c = bn_from_radix(c, radix);
-		if (c == -1)
+		if (c == (char)-1)
 			break;
 		cstr[j++] = str[i];
 	}
