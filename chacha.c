@@ -112,7 +112,11 @@ void chacha20_enc(struct chacha20_ctx *ctx, const void *in, void *out, int len)
 	s = (uint8_t *)c->stream;
 
 	for (;len;) {
-		/* Anything left over in the stream? */
+		if (c->ix == 64) {
+			chacha20_block(c);
+			c->ix = 0;
+		}
+
 		left = 64 - c->ix;
 		n = left < len ? left : len;
 		for (i = 0; i < n; ++i)
@@ -121,11 +125,6 @@ void chacha20_enc(struct chacha20_ctx *ctx, const void *in, void *out, int len)
 		q += n;
 		p += n;
 		len -= n;
-
-		if (c->ix == 64) {
-			chacha20_block(c);
-			c->ix = 0;
-		}
 	}
 }
 
