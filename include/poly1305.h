@@ -10,7 +10,8 @@
 #include <stdint.h>
 
 struct poly1305_ctx {
-	uint8_t res[56];
+	void *res0[4];
+	uint8_t res1[20];
 };
 
 /* All nums at the interfaces, in little-endian byte-array form. */
