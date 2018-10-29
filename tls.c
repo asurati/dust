@@ -125,6 +125,7 @@ void tls_derive_keys(struct tls_ctx *ctx)
 	bn_free(priv);
 	bn_free(t);
 	t = ec_point_x(ec, pub);
+	bn_print("shared:", t);
 
 	/*
 	 * Shared secret needs to be converted to little-endian byte-array
@@ -173,6 +174,10 @@ void tls_derive_keys(struct tls_ctx *ctx)
 	sha256_update(&hctx, (char *)ctx->chello + n, ctx->chello_len - n);
 	sha256_update(&hctx, (char *)ctx->shello + n, ctx->shello_len - n);
 	sha256_final(&hctx, dgst);
+	printf("hellohash:");
+	for (i = 0; i < SHA256_DIGEST_LEN; ++i)
+		printf("%02x", dgst[i]);
+	printf("\n");
 	/* The hash of the transcript. Use as it is. */
 
 	tls_derive_secret(ctx->hs, "c hs traffic", dgst, ctx->chts);
