@@ -42,8 +42,13 @@ static void tls_hkdf_expand_label(const void *secret, const char *label,
 {
 	int i, n;
 	uint16_t len;
-	uint8_t info[514];
+	uint8_t len8;
+	static uint8_t info[514];
 
+	/*
+	 * Store 1-byte lengths in a uint8_t.
+	 * Avoids endianness problems when passing len instead.
+	 */
 	i = 0;
 
 	len = htons(olen);
@@ -52,8 +57,8 @@ static void tls_hkdf_expand_label(const void *secret, const char *label,
 
 	n = strlen(label);
 	assert(n > 0 && n <= 12);
-	len = 6 + n;
-	*(uint8_t *)(&info[i]) = (uint8_t)len;
+	len8 = 6 + n;
+	*(uint8_t *)(&info[i]) = len8;
 	++i;
 	memcpy(&info[i], "tls13 ", 6);
 	i += 6;
@@ -61,16 +66,16 @@ static void tls_hkdf_expand_label(const void *secret, const char *label,
 	i += n;
 
 	if (thash)
-		len = SHA256_DIGEST_LEN;
+		len8 = SHA256_DIGEST_LEN;
 	else
-		len = 0;
-	memcpy(&info[i], &len, 1);
+		len8 = 0;
+	memcpy(&info[i], &len8, 1);
 	++i;
 	if (thash)
-		memcpy(&info[i], thash, len);
-	i += len;
-	len = i;
+		memcpy(&info[i], thash, len8);
+	i += len8;
 
+	len = i;
 	hkdf_sha256_expand(secret, SHA256_DIGEST_LEN, info, len, out, olen);
 }
 
@@ -560,11 +565,11 @@ key:9967fca75d10bfc07052161d8c5dbd7ba1674e5ef53f92d5bd86b56203bc30b8
 iv:d08a974ece193316e0d9c24e
 */
 
+uint8_t data[8192];
 static void tls_decipher_data(struct tls_ctx *ctx, const struct tls_rec_hw *hw,
 			      uint8_t *buf, size_t len)
 {
 	int i;
-	uint8_t data[60];
 	uint8_t key[32];
 	uint8_t iv[12];
 	struct tls_rec_hw rhw;

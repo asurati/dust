@@ -6,6 +6,7 @@
 
 #include <assert.h>
 #include <string.h>
+#include <endian.h>	/* Non-standard. */
 
 #include <sys/chacha.h>
 
@@ -30,24 +31,24 @@ void chacha20_init(struct chacha20_ctx *ctx, const uint8_t *key,
 	assert(key);
 	assert(nonce);
 
-	c->state[0]	= cnst[0];
-	c->state[1]	= cnst[1];
-	c->state[2]	= cnst[2];
-	c->state[3]	= cnst[3];
+	c->state[0]	= htole32(cnst[0]);
+	c->state[1]	= htole32(cnst[1]);
+	c->state[2]	= htole32(cnst[2]);
+	c->state[3]	= htole32(cnst[3]);
 
-	c->state[4]	= k[0];
-	c->state[5]	= k[1];
-	c->state[6]	= k[2];
-	c->state[7]	= k[3];
-	c->state[8]	= k[4];
-	c->state[9]	= k[5];
-	c->state[10]	= k[6];
-	c->state[11]	= k[7];
+	c->state[4]	= htole32(k[0]);
+	c->state[5]	= htole32(k[1]);
+	c->state[6]	= htole32(k[2]);
+	c->state[7]	= htole32(k[3]);
+	c->state[8]	= htole32(k[4]);
+	c->state[9]	= htole32(k[5]);
+	c->state[10]	= htole32(k[6]);
+	c->state[11]	= htole32(k[7]);
 
-	c->state[12]	= blk;
-	c->state[13]	= n[0];
-	c->state[14]	= n[1];
-	c->state[15]	= n[2];
+	c->state[12]	= blk;	/* blk is already numeric. */
+	c->state[13]	= htole32(n[0]);
+	c->state[14]	= htole32(n[1]);
+	c->state[15]	= htole32(n[2]);
 
 	/* Nothing left in the stream. */
 	c->ix = 64;
@@ -88,8 +89,10 @@ static void chacha20_block(struct chacha20 *c)
 	}
 
 
-	for (i = 0; i < 16; ++i)
+	for (i = 0; i < 16; ++i) {
 		stream[i] += c->state[i];
+		stream[i] = le32toh(stream[i]);
+	}
 
 	++c->state[12];
 	assert(c->state[12]);

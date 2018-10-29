@@ -5,18 +5,17 @@
  */
 
 #include <assert.h>
-#include <stdio.h>
 #include <string.h>
 
 #include <sha2.h>
 #include <hmac.h>
 #include <hkdf.h>
 
-static struct hmac_sha256_ctx hmac;
-
 void hkdf_sha256_extract(const void *salt, int slen, const void *ikm, int klen,
 			 uint8_t *prk)
 {
+	static struct hmac_sha256_ctx hmac;
+
 	assert(prk);
 	assert(slen >= 0);
 
@@ -36,7 +35,8 @@ void hkdf_sha256_expand(const void *prk, int plen, const void *info, int ilen,
 			uint8_t *out, int olen)
 {
 	int n, i;
-	uint8_t dgst[SHA256_DIGEST_LEN];
+	uint8_t dgst[SHA256_DIGEST_LEN], cntr;
+	static struct hmac_sha256_ctx hmac;
 
 	assert(ilen >= 0);
 	assert(olen >= 0);
@@ -49,7 +49,10 @@ void hkdf_sha256_expand(const void *prk, int plen, const void *info, int ilen,
 			hmac_sha256_update(&hmac, dgst, sizeof(dgst));
 		if (info && ilen)
 			hmac_sha256_update(&hmac, info, ilen);
-		hmac_sha256_update(&hmac, &i, 1);
+
+		/* Store (uint8_t)i into a byte, to avoid endianness issues. */
+		cntr = i;
+		hmac_sha256_update(&hmac, &cntr, 1);
 		hmac_sha256_final(&hmac, dgst);
 		memcpy(out, dgst, n);
 		out += n;

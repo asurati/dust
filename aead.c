@@ -6,6 +6,7 @@
 
 #include <assert.h>
 #include <string.h>
+#include <endian.h>	/* Non-standard. */
 
 #include <chacha.h>
 #include <poly1305.h>
@@ -30,10 +31,10 @@ static void aead_mac(const uint8_t* otk, const void *msg, int mlen,
 	pad = 16 - (mlen & 0xf);
 	if (pad != 16)
 		poly1305_update(&ctx, z, pad);
-	v = alen;
-	poly1305_update(&ctx, &v, sizeof(v));// le
-	v = mlen;
-	poly1305_update(&ctx, &v, sizeof(v));// le
+	v = htole64(alen);
+	poly1305_update(&ctx, &v, sizeof(v));
+	v = htole64(mlen);
+	poly1305_update(&ctx, &v, sizeof(v));
 	poly1305_final(&ctx, out);
 }
 
