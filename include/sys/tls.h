@@ -29,7 +29,7 @@ enum tls_client_state {
 	TLSC_WAIT_CERT_CR,
 	TLSC_WAIT_CERT,
 	TLSC_WAIT_CV,
-	TLSC_WAIT_FINISHED,
+	TLSC_WAIT_FIN,
 	TLSC_CONN
 };
 
@@ -160,6 +160,8 @@ struct tls_secrets {
 	/* Write traffic keys/IVs. */
 	uint8_t hand_traffic_key[2][32];	/* size by AEAD. */
 	uint8_t hand_traffic_iv[2][12];		/* size by AEAD. */
+	uint8_t app_traffic_key[2][32];		/* size by AEAD. */
+	uint8_t app_traffic_iv[2][12];		/* size by AEAD. */
 };
 
 struct tls_transcript {
@@ -169,8 +171,8 @@ struct tls_transcript {
 	uint8_t empty[SHA256_DIGEST_LEN];
 	uint8_t chello[SHA256_DIGEST_LEN];	/* CH */
 	uint8_t shello[SHA256_DIGEST_LEN];	/* CH,SH */
-	uint8_t sfinished[SHA256_DIGEST_LEN];	/* CH,SH,...,SF */
-	uint8_t cfinished[SHA256_DIGEST_LEN];	/* CH,SH,...,SF,...,CF */
+	uint8_t sfin[SHA256_DIGEST_LEN];	/* CH,SH,...,SF */
+	uint8_t cfin[SHA256_DIGEST_LEN];	/* CH,SH,...,SF,...,CF */
 };
 
 struct tls_ctx {

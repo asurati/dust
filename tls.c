@@ -484,24 +484,65 @@ struct tls_ctx *tls_ctx_new()
 	return ctx;
 }
 
-static void tls_derive_handshake_secrets(struct tls_ctx *ctx,
-					 const void *shello, int len)
+static void tls_derive_next_secret(uint8_t *out, const uint8_t *empty,
+				   const uint8_t *prev, const uint8_t *ikm)
+{
+	static uint8_t salt[SHA256_DIGEST_LEN];
+	static uint8_t zeroes[SHA256_DIGEST_LEN];
+
+	/*
+	 * Salt for the next extract. Transcript sent is empty. So thash is the
+	 * hash of the empty string. The result can be used as it is.
+	 */
+	tls_derive_secret(salt, prev, "derived", empty);
+
+	/* Next Secret. Can be used as it is. */
+	if (ikm == NULL) {
+		memset(zeroes, 0, sizeof(zeroes));
+		hkdf_sha256_extract(out, salt, sizeof(salt), zeroes, 32);
+	} else {
+		hkdf_sha256_extract(out, salt, sizeof(salt), ikm, 32);
+	}
+}
+
+static void tls_derive_traffic_ikm(uint8_t *t, uint8_t *tkey, uint8_t *tiv,
+			      const uint8_t *secret, const char *label,
+			      const uint8_t *thash)
+{
+	tls_derive_secret(t, secret, label, thash);
+	tls_hkdf_expand_label(tkey, 32, t, "key", NULL);
+	tls_hkdf_expand_label(tiv, 12, t, "iv", NULL);
+}
+
+static void tls_derive_master_secrets(struct tls_ctx *ctx)
+{
+	static struct sha256_ctx hctx;
+
+	hctx = ctx->transcript.hctx;
+	sha256_final(&hctx, ctx->transcript.sfin);
+
+	tls_derive_next_secret(ctx->secrets.master, ctx->transcript.empty,
+			       ctx->secrets.hand, NULL);
+	tls_derive_traffic_ikm(ctx->secrets.app_traffic[TLS_CLIENT],
+			       ctx->secrets.app_traffic_key[TLS_CLIENT],
+			       ctx->secrets.app_traffic_iv[TLS_CLIENT],
+			       ctx->secrets.master, "c ap traffic",
+			       ctx->transcript.sfin);
+	tls_derive_traffic_ikm(ctx->secrets.app_traffic[TLS_SERVER],
+			       ctx->secrets.app_traffic_key[TLS_SERVER],
+			       ctx->secrets.app_traffic_iv[TLS_SERVER],
+			       ctx->secrets.master, "s ap traffic",
+			       ctx->transcript.sfin);
+}
+
+static void tls_derive_handshake_secrets(struct tls_ctx *ctx)
 {
 	int sz;
-	uint8_t *p;
-	struct sha256_ctx hctx;
-	static uint8_t dgst[SHA256_DIGEST_LEN];
+	static struct sha256_ctx hctx;
 	struct ec *ec;
 	struct ec_point *pub;
 	struct bn *t, *priv;
 	struct ec_mont_params emp;
-
-	/* Update the running transcript hash. */
-	sz = sizeof(struct tls_rec_hw);
-	hctx = ctx->transcript.hctx;
-	sha256_update(&hctx, (const uint8_t*)shello + sz, len - sz);
-	ctx->transcript.hctx = hctx;
-	sha256_final(&hctx, ctx->transcript.shello);
 
 	/* Calculate the ECDHE shared secret. */
 	emp.prime	= c25519_prime;
@@ -534,61 +575,36 @@ static void tls_derive_handshake_secrets(struct tls_ctx *ctx,
 	ec_point_free(ec, pub);
 	ec_free(ec);
 
-	/*
-	 * Salt for ECDHE extract. Transcript sent is empty. So thash is the
-	 * hash of the empty string. The result can be used as it is.
-	 */
-	tls_derive_secret(dgst, ctx->secrets.early, "derived",
-			  ctx->transcript.empty);
-	/* 6f2615a108c702c5678f54fc9dbab69716c076189c48250cebeac3576c3611ba */
+	hctx = ctx->transcript.hctx;
+	sha256_final(&hctx, ctx->transcript.shello);
 
-	/* ECDHE extract == Handshake secret. Can be used as it is. */
-	hkdf_sha256_extract(ctx->secrets.hand, dgst, sizeof(dgst),
-			    ctx->secrets.shared, 32);
-
-	/* Client/Server handshake traffic secrets. */
-	/* The hash of the transcript. Use as it is. */
-	tls_derive_secret(ctx->secrets.hand_traffic[TLS_CLIENT],
-			  ctx->secrets.hand, "c hs traffic",
-			  ctx->transcript.shello);
-	tls_derive_secret(ctx->secrets.hand_traffic[TLS_SERVER],
-			  ctx->secrets.hand, "s hs traffic",
-			  ctx->transcript.shello);
-
-	/* Client's write traffic key/iv. */
-	p = ctx->secrets.hand_traffic[TLS_CLIENT];
-	tls_hkdf_expand_label(ctx->secrets.hand_traffic_key[TLS_CLIENT], 32, p,
-			      "key", NULL);
-	tls_hkdf_expand_label(ctx->secrets.hand_traffic_iv[TLS_CLIENT], 12, p,
-			      "iv", NULL);
-
-	/* Server's write traffic key/iv. */
-	p = ctx->secrets.hand_traffic[TLS_SERVER];
-	tls_hkdf_expand_label(ctx->secrets.hand_traffic_key[TLS_SERVER], 32, p,
-			      "key", NULL);
-	tls_hkdf_expand_label(ctx->secrets.hand_traffic_iv[TLS_SERVER], 12, p,
-			      "iv", NULL);
+	tls_derive_next_secret(ctx->secrets.hand, ctx->transcript.empty,
+			       ctx->secrets.early, ctx->secrets.shared);
+	tls_derive_traffic_ikm(ctx->secrets.hand_traffic[TLS_CLIENT],
+			       ctx->secrets.hand_traffic_key[TLS_CLIENT],
+			       ctx->secrets.hand_traffic_iv[TLS_CLIENT],
+			       ctx->secrets.hand, "c hs traffic",
+			       ctx->transcript.shello);
+	tls_derive_traffic_ikm(ctx->secrets.hand_traffic[TLS_SERVER],
+			       ctx->secrets.hand_traffic_key[TLS_SERVER],
+			       ctx->secrets.hand_traffic_iv[TLS_SERVER],
+			       ctx->secrets.hand, "s hs traffic",
+			       ctx->transcript.shello);
 }
 
-static void tls_derive_early_secrets(struct tls_ctx *ctx, const void *chello,
-				     int len)
+static void tls_derive_early_secrets(struct tls_ctx *ctx)
 {
-	int sz;
-	struct sha256_ctx hctx;
-	static uint8_t dgst[SHA256_DIGEST_LEN];
+	static struct sha256_ctx hctx;
+	static uint8_t zeroes[SHA256_DIGEST_LEN];
 
-	sz = sizeof(struct tls_rec_hw);
-	sha256_init(&hctx);
-	sha256_update(&hctx, (const uint8_t *)chello + sz, len - sz);
-
-	/* Save the context to process subsequent messages. */
-	ctx->transcript.hctx = hctx;
+	hctx = ctx->transcript.hctx;
 	sha256_final(&hctx, ctx->transcript.chello);
 
-	memset(dgst, 0, sizeof(dgst));
+	memset(zeroes, 0, sizeof(zeroes));
 
 	/* Early Secret. We do not support PSK. */
-	hkdf_sha256_extract(ctx->secrets.early, NULL, 0, dgst, sizeof(dgst));
+	hkdf_sha256_extract(ctx->secrets.early, NULL, 0, zeroes,
+			    sizeof(zeroes));
 	/* 33ad0a1c607ec03b09e6cd9893680ce210adf300aa1f2660e1b22e10f170f92a */
 }
 
@@ -632,14 +648,18 @@ void tls_client_machine(struct tls_ctx *ctx, const char *ip, short port)
 {
 	FILE *f;
 	enum tls_client_state cs;
-	int n, sock, ret, sz;
+	int n, sock, ret, sz, rhsz;
 	uint8_t *buf;
 	struct sockaddr_in srvr = {0};
-	struct tls_hand_hw *hhw;
+	const struct tls_hand_hw *hhw;
 	struct tls_rec_hw *rhw;
 	struct tls_rec_sw *rsw;
 
 	assert(ctx->role == TLS_CLIENT);
+	buf = malloc(32*1024);
+	assert(buf);
+
+	rhsz = sizeof(struct tls_rec_hw);
 
 	goto skip;
 
@@ -650,41 +670,93 @@ void tls_client_machine(struct tls_ctx *ctx, const char *ip, short port)
 	ret = connect(sock, (const struct sockaddr *)&srvr, sizeof(srvr));
 	assert(ret == 0);
 skip:
-	ctx->client_state = TLSC_START;
-	buf = malloc(32*1024);
+	/* TLSC_START */
+	rsw = tls_new_chello(ctx);
+	n = rsw->hw.len + rhsz;
+	assert( n > 0 && n < 32 * 1024);
+	tls_serialize_rec(buf, n, rsw);
+
+	/* Begin the trasncript hash. */
+	sha256_init(&ctx->transcript.hctx);
+	sha256_update(&ctx->transcript.hctx, buf + rhsz, n - rhsz);
+
+	tls_derive_early_secrets(ctx);
+	f = fopen("/tmp/shello", "rb");
+#if 0
+	ret = send(sock, buf, n, 0);
+	assert(ret == n);
+#endif
+	ctx->client_state = TLSC_WAIT_SH;
+	/* TLSC_START Ends */
+
+
+
+
 
 	for (;;) {
 		rsw = NULL;
 
+		/* Read a record header. */
+		//n = recv(sock, buf, sizeof(*rhw), 0);
+		n = fread(buf, 1, rhsz, f);
+		assert(n == rhsz);
+
+		rhw = (struct tls_rec_hw *)buf;
+
+		/* Apply checks. */
 		switch (ctx->client_state) {
 		case TLSC_WAIT_EE:
 		case TLSC_WAIT_CERT_CR:
 		case TLSC_WAIT_CERT:
 		case TLSC_WAIT_CV:
-		case TLSC_WAIT_FINISHED:
-			/* rhw is not assigned. */
-			//n = recv(sock, buf, sizeof(*rhw), 0);
-			n = fread(buf, 1, sizeof(*rhw), f);
-			assert(n == sizeof(*rhw));
-
-			rhw = (struct tls_rec_hw *)buf;
+		case TLSC_WAIT_FIN:
 			assert(rhw->type == TLS_RT_DATA);
-			sz = ntohs(rhw->len);
+			break;
+		case TLSC_WAIT_CCS:
+			assert(rhw->type == TLS_RT_CCS);
+			assert(ntohs(rhw->len) == 1);
+			break;
+		case TLSC_WAIT_SH:
+			assert(rhw->type == TLS_RT_HAND);
+			break;
+		default:
+			assert(0);
+			break;
+		}
 
-			//n = recv(sock, rhw + 1, ntohs(rhw->len), 0);
-			n = fread(rhw + 1, 1, sz, f);
-			assert(n == sz);
-			n += sizeof(*rhw);
+		/* Read the record payload. */
+		sz = ntohs(rhw->len);
+		//n = recv(sock, rhw + 1, ntohs(rhw->len), 0);
+		n = fread(rhw + 1, 1, sz, f);
+		assert(n == sz);
 
+		/*
+		 * Calculate the total size of the record, including
+		 * header and payload.
+		 */
+		n += rhsz;
+
+		/* Update the running transcript hash. */
+		sha256_update(&ctx->transcript.hctx, buf + rhsz, n - rhsz);
+
+		/* Process the record. */
+		switch (ctx->client_state) {
+		case TLSC_WAIT_EE:
+		case TLSC_WAIT_CERT_CR:
+		case TLSC_WAIT_CERT:
+		case TLSC_WAIT_CV:
+		case TLSC_WAIT_FIN:
 			n = tls_decipher_handshake(ctx, buf, n);
-
 			/* Craft a handshake record for deserialization. */
 			rhw->type = TLS_RT_HAND;
 			rhw->len = htons(n);
-			n += sizeof(*rhw);
+			n += rhsz;
 			rsw = tls_deserialize_rec(ctx, buf, n);
 
 			cs = ctx->client_state;
+			if (cs == TLSC_WAIT_FIN)
+				tls_derive_master_secrets(ctx);
+
 			if (cs == TLSC_WAIT_EE)
 				cs = TLSC_WAIT_CERT_CR;
 			else if (cs == TLSC_WAIT_CERT_CR)
@@ -692,8 +764,8 @@ skip:
 			else if (cs == TLSC_WAIT_CERT)
 				cs = TLSC_WAIT_CV;
 			else if (cs == TLSC_WAIT_CV)
-				cs = TLSC_WAIT_FINISHED;
-			else if (cs == TLSC_WAIT_FINISHED)
+				cs = TLSC_WAIT_FIN;
+			else if (cs == TLSC_WAIT_FIN)
 				cs = TLSC_CONN;
 			else
 				assert(0);
@@ -701,64 +773,20 @@ skip:
 			++ctx->seq;
 			break;
 		case TLSC_WAIT_CCS:
-			/* rhw is not assigned. */
-			//n = recv(sock, buf, sizeof(*rhw), 0);
-			n = fread(buf, 1, sizeof(*rhw), f);
-			assert(n == sizeof(*rhw));
-
-			rhw = (struct tls_rec_hw *)buf;
-			assert(rhw->type == TLS_RT_CCS);
-			sz = ntohs(rhw->len);
-			assert(sz == 1);
-
-			//n = recv(sock, rhw + 1, ntohs(rhw->len), 0);
-			n = fread(rhw + 1, 1, sz, f);
-			assert(n == sz);
 			ctx->seq = 0;
 			ctx->client_state = TLSC_WAIT_EE;
 			break;
 		case TLSC_WAIT_SH:
-			/* rhw is not assigned. */
-			//n = recv(sock, buf, sizeof(*rhw), 0);
-			n = fread(buf, 1, sizeof(*rhw), f);
-			assert(n == sizeof(*rhw));
-
-			rhw = (struct tls_rec_hw *)buf;
-			hhw = (struct tls_hand_hw *)(rhw + 1);
-
-			assert(rhw->type == TLS_RT_HAND);
-			sz = ntohs(rhw->len);
-
-			//n = recv(sock, rhw + 1, ntohs(rhw->len), 0);
-			n = fread(rhw + 1, 1, sz, f);
-			assert(n == sz);
+			hhw = (const struct tls_hand_hw *)(rhw + 1);
 			assert(hhw->type == TLS_HT_SHELLO);
-			n += sizeof(*rhw);
 
 			/*
 			 * Deserialize fills in the server's ECHDE key
 			 * share.
 			 */
 			rsw = tls_deserialize_rec(ctx, buf, n);
-
-			/* Calculate the CH,SH transcript hash. */
-
-			tls_derive_handshake_secrets(ctx, buf, n);
+			tls_derive_handshake_secrets(ctx);
 			ctx->client_state = TLSC_WAIT_CCS;
-			break;
-		case TLSC_START:
-			rsw = tls_new_chello(ctx);
-			n = rsw->hw.len + sizeof(rsw->hw);
-			assert( n > 0 && n < 32 * 1024);
-			tls_serialize_rec(buf, n, rsw);
-
-			tls_derive_early_secrets(ctx, buf, n);
-			f = fopen("/tmp/shello", "rb");
-#if 0
-			ret = send(sock, buf, n, 0);
-			assert(ret == n);
-#endif
-			ctx->client_state = TLSC_WAIT_SH;
 			break;
 		default:
 			assert(0);
