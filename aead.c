@@ -39,8 +39,8 @@ static void aead_mac(const uint8_t* otk, const void *msg, int mlen,
 }
 
 /* The last 16 bytes of the msg are the tag. */
-void aead_dec(const uint8_t* key, const uint8_t *nonce, const void *msg,
-	      int mlen,  const void *aad, int alen, uint8_t *out)
+int aead_dec(const uint8_t* key, const uint8_t *nonce, const void *msg,
+	     int mlen,  const void *aad, int alen, uint8_t *out)
 {
 	struct chacha20_ctx ctx;
 	static uint8_t otk[32];
@@ -66,10 +66,11 @@ void aead_dec(const uint8_t* key, const uint8_t *nonce, const void *msg,
 	/* Decrypt the data. */
 	chacha20_init(&ctx, key, nonce, 1);
 	chacha20_dec(&ctx, msg, out, mlen - 16);
+	return mlen - 16;
 }
 
-void aead_enc(const uint8_t* key, const uint8_t *nonce, const void *msg,
-	      int mlen,  const void *aad, int alen, uint8_t *out)
+int aead_enc(const uint8_t* key, const uint8_t *nonce, const void *msg,
+	     int mlen,  const void *aad, int alen, uint8_t *out)
 {
 	struct chacha20_ctx ctx;
 	static uint8_t otk[32];
@@ -92,4 +93,5 @@ void aead_enc(const uint8_t* key, const uint8_t *nonce, const void *msg,
 
 	/* Generate mac. */
 	aead_mac(otk, out, mlen, aad, alen, out + mlen);
+	return mlen + 16;
 }
