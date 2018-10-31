@@ -1683,12 +1683,13 @@ void bn_mod_sqrt(struct bn *a, const struct bn *m)	/* m == modulus. */
 
 #define PRIME_TEST_LIMIT 1000000
 
-/* Fermat's. The function is quite slow. Do not use for primes > 1024 bits. */
+/* Fermat's. The function is quite slow. Do not use for primes > 256 bits. */
 struct bn *bn_new_prob_prime(int nbits)
 {
 	int nbytes, i, comp, sz, nprimes;
 	uint8_t *bytes;
 	struct bn *n, *a, *two, *one, *nm1, *t, *rem;
+	struct bn_ctx_mont *ctx;
 	FILE *f;
 	int *primes;
 
@@ -1767,19 +1768,27 @@ struct bn *bn_new_prob_prime(int nbits)
 
 		a = bn_new_copy(two);
 		nm1 = bn_new_copy(n);
-		bn_sub(nm1, one);
+		bn_sub(nm1, one);	/* exponent. */
 
+		ctx = bn_ctx_mont_new(n);
+		bn_to_mont(ctx, a);
+
+		comp = 0;
 		for (i = 0; i < 10; ++i) {
 			/* TODO check a with n - 2. */
 			t = bn_new_copy(a);
-			bn_mod_pow(t, nm1, n);
-			if (!bn_is_one(t)) {
-				bn_free(t);
-				break;
-			}
+			bn_mod_pow_mont(ctx, t, nm1);
+
+			if (bn_cmp_abs(t, ctx->one))
+				comp = 1;
 			bn_free(t);
-			bn_add(a, one);
+			if (comp)
+				break;
+
+			if (i < 9)
+				bn_add_mont(ctx, a, ctx->one);
 		}
+		bn_ctx_mont_free(ctx);
 		bn_free(a);
 		bn_free(nm1);
 		if (i == 10)
