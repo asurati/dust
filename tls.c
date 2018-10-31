@@ -186,6 +186,7 @@ void tls_deserialize_hand(struct tls_ctx *ctx, struct tls_hand_sw *sw,
 			  const void *buf, int len)
 {
 	int n;
+	const uint8_t *p;
 	const struct tls_hand_hw *hw;
 
 	hw = buf;
@@ -207,9 +208,18 @@ void tls_deserialize_hand(struct tls_ctx *ctx, struct tls_hand_sw *sw,
 		break;
 	case TLS_HT_CV:
 		printf("%s: unsup CV\n", __func__);
+		p = (const uint8_t *)(hw + 1);
+		for (int i = 0; i < n; ++i)
+			printf("%02x ", p[i]);
+		printf("\n");
 		break;
 	case TLS_HT_FIN:
 		printf("%s: unsup FIN\n", __func__);
+		p = (const uint8_t *)(hw + 1);
+		for (int i = 0; i < n; ++i)
+			printf("%02x ", p[i]);
+		printf("\n");
+
 		break;
 	default:
 		printf("%s: unsup %x\n", __func__, hw->type);
@@ -742,7 +752,6 @@ skip:
 		/* Process the record. */
 		switch (ctx->client_state) {
 		case TLSC_WAIT_EE:
-		case TLSC_WAIT_CERT_CR:
 		case TLSC_WAIT_CERT:
 		case TLSC_WAIT_CV:
 		case TLSC_WAIT_FIN:
@@ -754,13 +763,24 @@ skip:
 			rsw = tls_deserialize_rec(ctx, buf, n);
 
 			cs = ctx->client_state;
+
+			/*
+			 * Calculate the signature over the transcript-hash
+			 * and compare it with the signature received next
+			 * in the CV state.
+			 */
+			if (cs == TLSC_WAIT_CERT) {
+			}
+
+			/* Calculate the MAC. */
+			if (cs == TLSC_WAIT_CV) {
+			}
+
 			if (cs == TLSC_WAIT_FIN)
 				tls_derive_master_secrets(ctx);
 
 			if (cs == TLSC_WAIT_EE)
-				cs = TLSC_WAIT_CERT_CR;
-			else if (cs == TLSC_WAIT_CERT_CR)
-				cs = TLSC_WAIT_CV;	/* We recv CERT. */
+				cs = TLSC_WAIT_CERT;
 			else if (cs == TLSC_WAIT_CERT)
 				cs = TLSC_WAIT_CV;
 			else if (cs == TLSC_WAIT_CV)
