@@ -23,7 +23,6 @@ typedef int64_t slimb2_t;
 #define LIMB_BYTES_LOG			(LIMB_BITS_LOG - 3)
 #define LIMB_FMT_STR			"%08x"
 
-
 struct limbs {
 	struct list_head entry;
 	int n;	/* # of limbs in the array. */
@@ -50,9 +49,12 @@ struct bn {
 	int neg;
 };
 
+#define NUM_FREE_BN				128
 #define NUM_LIMB_SIZES				12
 
 struct bn_pool {
+	void *nums;
+	void *limbs;
 	int nfree_nums;
 	struct list_head free_nums;
 	int nfree_limbs[NUM_LIMB_SIZES];

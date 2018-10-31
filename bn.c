@@ -31,7 +31,8 @@ static const int limbs_nfree[NUM_LIMB_SIZES] = {
 
 static struct bn_pool *bn_pool_new()
 {
-	int i, j, nlimbs, sz;
+	int i, j;
+	size_t sz, tsz;
 	struct bn_pool *p;
 	struct bn *tbn;
 	struct limbs *tl;
@@ -39,25 +40,30 @@ static struct bn_pool *bn_pool_new()
 	p = malloc(sizeof(*p));
 	assert(p);
 
-	p->nfree_nums = 128;
+	p->nfree_nums = NUM_FREE_BN;
 	init_list_head(&p->free_nums);
-	for (i = 0; i < 128; ++i) {
-		tbn = malloc(sizeof(*tbn));
-		assert(tbn);
-		list_add(&tbn->entry, &p->free_nums);
+	p->nums = tbn = malloc(NUM_FREE_BN * sizeof(*tbn));
+	assert(tbn);
+	for (i = 0; i < NUM_FREE_BN; ++i)
+		list_add(&tbn[i].entry, &p->free_nums);
+
+	for (i = 0, sz = 0; i < NUM_LIMB_SIZES; ++i) {
+		tsz = sizeof(*tl) + (bn_nlimbs[i] << LIMB_BYTES_LOG);
+		tsz *= limbs_nfree[i];
+		sz += tsz;
 	}
+	p->limbs = tl = malloc(sz);
+	assert(tl);
 
 	for (i = 0; i < NUM_LIMB_SIZES; ++i) {
 		init_list_head(&p->free_limbs[i]);
 		p->npeak_limbs[i] = 0;
 		p->nfree_limbs[i] = limbs_nfree[i];
-		nlimbs = bn_nlimbs[i];
-		sz = sizeof(*tl) + (nlimbs << LIMB_BYTES_LOG);
+		sz = sizeof(*tl) + (bn_nlimbs[i] << LIMB_BYTES_LOG);
 		for (j = 0; j < limbs_nfree[i]; ++j) {
-			tl = malloc(sz);
-			tl->n = nlimbs;
-			assert(tl);
+			tl->n = bn_nlimbs[i];
 			list_add(&tl->entry, &p->free_limbs[i]);
+			tl = (struct limbs *)((char*)tl + sz);
 		}
 	}
 	return p;
@@ -66,16 +72,11 @@ static struct bn_pool *bn_pool_new()
 static void bn_pool_free(struct bn_pool *p)
 {
 	int i;
-	struct bn *tbn;
 	struct limbs *tl;
 	struct list_head *e;
 
-	assert(p->nfree_nums == 128);
-	while (!list_empty(&p->free_nums)) {
-		e = list_del_head(&p->free_nums);
-		tbn = to_bn(e);
-		free(tbn);
-	}
+	assert(p->nfree_nums == NUM_FREE_BN);
+	free(p->nums);
 
 	for (i = 0; i < NUM_LIMB_SIZES; ++i) {
 		// printf("peak[%d] = %d\n", bn_nlimbs[i], p->npeak_limbs[i]);
@@ -84,9 +85,9 @@ static void bn_pool_free(struct bn_pool *p)
 			e = list_del_head(&p->free_limbs[i]);
 			tl = to_limbs(e);
 			assert(tl->n == bn_nlimbs[i]);
-			free(tl);
 		}
 	}
+	free(p->limbs);
 	free(p);
 }
 
@@ -95,7 +96,7 @@ static struct bn *bn_pool_get_bn(struct bn_pool *p)
 	struct list_head *e;
 	struct bn *b;
 
-	assert(p->nfree_nums > 0 && p->nfree_nums <= 128);
+	assert(p->nfree_nums > 0 && p->nfree_nums <= NUM_FREE_BN);
 
 	--p->nfree_nums;
 	e = list_del_head(&p->free_nums);
@@ -165,7 +166,7 @@ static void bn_pool_put_bn(struct bn_pool *p, struct bn *b)
 {
 	assert(b != BN_INVALID);
 
-	assert(p->nfree_nums >= 0 && p->nfree_nums < 128);
+	assert(p->nfree_nums >= 0 && p->nfree_nums < NUM_FREE_BN);
 	if (b->l != BN_LIMBS_INVALID)
 		bn_pool_put_limbs(p, b->l);
 
