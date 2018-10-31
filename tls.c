@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <endian.h>
 
 #include <arpa/inet.h>
 
@@ -594,6 +595,7 @@ static void tls_derive_early_secrets(struct tls_ctx *ctx, const void *chello,
 static int tls_decipher_handshake(struct tls_ctx *ctx, void *rec, int len)
 {
 	int i, sz, other;
+	uint64_t seq;
 	uint8_t iv[12], *out;
 	const uint8_t *p;
 
@@ -602,10 +604,11 @@ static int tls_decipher_handshake(struct tls_ctx *ctx, void *rec, int len)
 		other = TLS_CLIENT;
 
 	memcpy(iv, ctx->secrets.hand_traffic_iv[other], sizeof(iv));
-	p = (const uint8_t *)&ctx->seq;
-	for (i = 0; i < 8; ++i)
-		iv[11 - i] ^= p[i]; //LE
 
+	seq = htole64(ctx->seq);
+	p = (const uint8_t *)&seq;
+	for (i = 0; i < 8; ++i)
+		iv[11 - i] ^= p[i];
 
 	sz = sizeof(struct tls_rec_hw);
 	out = (uint8_t *)rec + sz;
