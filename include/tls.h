@@ -11,5 +11,5 @@ struct tls_ctx;
 
 struct tls_ctx
 	*tls_ctx_new();
-int	 tls_connect(struct tls_ctx *ctx, const char *ip, short port);
+void	 tls_client_machine(struct tls_ctx *ctx, const char *ip, short port);
 #endif
