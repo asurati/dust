@@ -14,8 +14,8 @@
 
 /* Conforms to RFC 7539 and 7905. */
 
-static void aead_mac(const uint8_t* otk, const void *msg, int mlen,
-		     const void *aad, int alen, uint8_t *out)
+static void aead_mac(uint8_t *out, const uint8_t* otk, const void *msg,
+		     int mlen, const void *aad, int alen)
 {
 	int pad;
 	struct poly1305_ctx ctx;
@@ -58,14 +58,14 @@ int aead_dec(const uint8_t* key, const uint8_t *nonce, const void *msg,
 	chacha20_enc(&ctx, otk, otk, 32);
 
 	/* Generate mac. */
-	aead_mac(otk, msg, mlen - 16, aad, alen, otk);
+	aead_mac(otk, otk, msg, mlen - 16, aad, alen);
 
 	/* Not-a-constant-time compare. */
 	assert(memcmp(otk, (const uint8_t *)msg + mlen - 16, 16) == 0);
 
 	/* Decrypt the data. */
 	chacha20_init(&ctx, key, nonce, 1);
-	chacha20_dec(&ctx, msg, out, mlen - 16);
+	chacha20_dec(&ctx, out, msg, mlen - 16);
 	return mlen - 16;
 }
 
@@ -89,9 +89,9 @@ int aead_enc(const uint8_t* key, const uint8_t *nonce, const void *msg,
 
 	/* Encrypt the data. */
 	chacha20_init(&ctx, key, nonce, 1);
-	chacha20_enc(&ctx, msg, out, mlen);
+	chacha20_enc(&ctx, out, msg, mlen);
 
 	/* Generate mac. */
-	aead_mac(otk, out, mlen, aad, alen, out + mlen);
+	aead_mac(out + mlen, otk, out, mlen, aad, alen);
 	return mlen + 16;
 }

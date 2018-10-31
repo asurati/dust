@@ -16,8 +16,8 @@ struct chacha20_ctx {
 /* All nums at the interfaces, in little-endian byte-array form. */
 void	chacha20_init(struct chacha20_ctx *ctx, const uint8_t *key,
 	const void *nonce, uint32_t blk);
-void	chacha20_enc(struct chacha20_ctx *ctx, const void *in, void *out,
+void	chacha20_enc(struct chacha20_ctx *ctx, void *out, const void *in,
 	int len);
-void	chacha20_dec(struct chacha20_ctx *ctx, const void *in, void *out,
+void	chacha20_dec(struct chacha20_ctx *ctx, void *out, const void *in,
 	int len);
 #endif

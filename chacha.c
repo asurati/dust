@@ -98,7 +98,7 @@ static void chacha20_block(struct chacha20 *c)
 	assert(c->state[12]);
 }
 
-void chacha20_enc(struct chacha20_ctx *ctx, const void *in, void *out, int len)
+void chacha20_enc(struct chacha20_ctx *ctx, void *out, const void *in, int len)
 {
 	int i, left, n;
 	const uint8_t *p;
@@ -128,7 +128,7 @@ void chacha20_enc(struct chacha20_ctx *ctx, const void *in, void *out, int len)
 	}
 }
 
-void chacha20_dec(struct chacha20_ctx *ctx, const void *in, void *out, int len)
+void chacha20_dec(struct chacha20_ctx *ctx, void *out, const void *in, int len)
 {
-	chacha20_enc(ctx, in, out, len);
+	chacha20_enc(ctx, out, in, len);
 }

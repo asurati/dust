@@ -38,8 +38,8 @@ const char *priv_str	=
 const char *pub_str	=
 "671e3b404cd8512b5077822a2e7764d614cdda6f67d3c6433ce63d5bcb132b7d";
 
-static void tls_hkdf_expand_label(const void *secret, const char *label,
-				  const void *thash, uint8_t *out, int olen)
+static void tls_hkdf_expand_label(uint8_t *out, int olen, const void *secret,
+				  const char *label, const void *thash)
 {
 	int i, n;
 	uint16_t len;
@@ -77,7 +77,7 @@ static void tls_hkdf_expand_label(const void *secret, const char *label,
 	i += len8;
 
 	len = i;
-	hkdf_sha256_expand(secret, SHA256_DIGEST_LEN, info, len, out, olen);
+	hkdf_sha256_expand(out, olen, secret, SHA256_DIGEST_LEN, info, len);
 }
 
 /*
@@ -89,10 +89,10 @@ static void tls_hkdf_expand_label(const void *secret, const char *label,
  *
  * out's size is also the same.
  */
-static void tls_derive_secret(const void *secret, const char *label,
-			      const void *thash, uint8_t *out)
+static void tls_derive_secret(uint8_t *out, const void *secret,
+			      const char *label, const void *thash)
 {
-	tls_hkdf_expand_label(secret, label, thash, out, SHA256_DIGEST_LEN);
+	tls_hkdf_expand_label(out, SHA256_DIGEST_LEN, secret, label, thash);
 }
 
 /* XXX: Allow a max of 8 extensions. */
@@ -538,36 +538,36 @@ static void tls_derive_handshake_secrets(struct tls_ctx *ctx,
 	 * Salt for ECDHE extract. Transcript sent is empty. So thash is the
 	 * hash of the empty string. The result can be used as it is.
 	 */
-	tls_derive_secret(ctx->secrets.early, "derived",
-			  ctx->transcript.empty, dgst);
+	tls_derive_secret(dgst, ctx->secrets.early, "derived",
+			  ctx->transcript.empty);
 	/* 6f2615a108c702c5678f54fc9dbab69716c076189c48250cebeac3576c3611ba */
 
 	/* ECDHE extract == Handshake secret. Can be used as it is. */
-	hkdf_sha256_extract(dgst, sizeof(dgst), ctx->secrets.shared, 32,
-			    ctx->secrets.hand);
+	hkdf_sha256_extract(ctx->secrets.hand, dgst, sizeof(dgst),
+			    ctx->secrets.shared, 32);
 
 	/* Client/Server handshake traffic secrets. */
 	/* The hash of the transcript. Use as it is. */
-	tls_derive_secret(ctx->secrets.hand, "c hs traffic",
-			  ctx->transcript.shello,
-			  ctx->secrets.hand_traffic[TLS_CLIENT]);
-	tls_derive_secret(ctx->secrets.hand, "s hs traffic",
-			  ctx->transcript.shello,
-			  ctx->secrets.hand_traffic[TLS_SERVER]);
+	tls_derive_secret(ctx->secrets.hand_traffic[TLS_CLIENT],
+			  ctx->secrets.hand, "c hs traffic",
+			  ctx->transcript.shello);
+	tls_derive_secret(ctx->secrets.hand_traffic[TLS_SERVER],
+			  ctx->secrets.hand, "s hs traffic",
+			  ctx->transcript.shello);
 
 	/* Client's write traffic key/iv. */
 	p = ctx->secrets.hand_traffic[TLS_CLIENT];
-	tls_hkdf_expand_label(p, "key", NULL,
-			      ctx->secrets.hand_traffic_key[TLS_CLIENT], 32);
-	tls_hkdf_expand_label(p, "iv", NULL,
-			      ctx->secrets.hand_traffic_iv[TLS_CLIENT], 12);
+	tls_hkdf_expand_label(ctx->secrets.hand_traffic_key[TLS_CLIENT], 32, p,
+			      "key", NULL);
+	tls_hkdf_expand_label(ctx->secrets.hand_traffic_iv[TLS_CLIENT], 12, p,
+			      "iv", NULL);
 
 	/* Server's write traffic key/iv. */
 	p = ctx->secrets.hand_traffic[TLS_SERVER];
-	tls_hkdf_expand_label(p, "key", NULL,
-			      ctx->secrets.hand_traffic_key[TLS_SERVER], 32);
-	tls_hkdf_expand_label(p, "iv", NULL,
-			      ctx->secrets.hand_traffic_iv[TLS_SERVER], 12);
+	tls_hkdf_expand_label(ctx->secrets.hand_traffic_key[TLS_SERVER], 32, p,
+			      "key", NULL);
+	tls_hkdf_expand_label(ctx->secrets.hand_traffic_iv[TLS_SERVER], 12, p,
+			      "iv", NULL);
 }
 
 static void tls_derive_early_secrets(struct tls_ctx *ctx, const void *chello,
@@ -588,7 +588,7 @@ static void tls_derive_early_secrets(struct tls_ctx *ctx, const void *chello,
 	memset(dgst, 0, sizeof(dgst));
 
 	/* Early Secret. We do not support PSK. */
-	hkdf_sha256_extract(NULL, 0, dgst, sizeof(dgst), ctx->secrets.early);
+	hkdf_sha256_extract(ctx->secrets.early, NULL, 0, dgst, sizeof(dgst));
 	/* 33ad0a1c607ec03b09e6cd9893680ce210adf300aa1f2660e1b22e10f170f92a */
 }
 

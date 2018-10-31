@@ -11,28 +11,28 @@
 #include <hmac.h>
 #include <hkdf.h>
 
-void hkdf_sha256_extract(const void *salt, int slen, const void *ikm, int klen,
-			 uint8_t *prk)
+void hkdf_sha256_extract(uint8_t *out, const void *salt, int slen,
+			 const void *ikm, int klen)
 {
 	static struct hmac_sha256_ctx hmac;
 
-	assert(prk);
+	assert(out);
 	assert(slen >= 0);
 
 	if (salt == NULL || slen == 0) {
 		/* prk is assumed to be at least SHA256_DIGEST_LEN sized. */
 		slen = SHA256_DIGEST_LEN;
-		salt = prk;
-		memset(prk, 0, slen);
+		salt = out;
+		memset(out, 0, slen);
 	}
 
 	hmac_sha256_init(&hmac, salt, slen);
 	hmac_sha256_update(&hmac, ikm, klen);
-	hmac_sha256_final(&hmac, prk);
+	hmac_sha256_final(&hmac, out);
 }
 
-void hkdf_sha256_expand(const void *prk, int plen, const void *info, int ilen,
-			uint8_t *out, int olen)
+void hkdf_sha256_expand(uint8_t *out, int olen, const void *prk, int plen,
+			const void *info, int ilen)
 {
 	int n, i;
 	uint8_t dgst[SHA256_DIGEST_LEN], cntr;

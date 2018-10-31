@@ -9,10 +9,10 @@
 
 #include <stdint.h>
 
-void	hkdf_sha256_extract(const void *salt, int slen, const void *ikm,
-	int klen, uint8_t *prk);
+void	hkdf_sha256_extract(uint8_t *out, const void *salt, int slen,
+	const void *ikm, int klen);
 
 /* Returns in big-endian form; can be directly used to instantiate bn. */
-void	hkdf_sha256_expand(const void *prk, int plen, const void *info,
-	int ilen, uint8_t *out, int olen);
+void	hkdf_sha256_expand(uint8_t *out, int olen, const void *prk, int plen,
+	const void *info, int ilen);
 #endif
