@@ -95,358 +95,298 @@ static void tls_derive_secret(uint8_t *out, const void *secret,
 	tls_hkdf_expand_label(out, SHA256_DIGEST_LEN, secret, label, thash);
 }
 
-/* XXX: Allow a max of 8 extensions. */
-void tls_deserialize_exts(struct tls_ctx *ctx, struct tls_ext_sw sw[8],
-			  const void *buf, int len)
+
+
+
+
+
+
+
+
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+static void tls_shello_pub(struct tls_ctx *ctx, const struct tls_ext_hw *exts,
+			   int exts_len)
 {
-	int i, n;
-	const struct tls_ext_hw *hw;
-	struct tls_kse_hw *khwo;
-	const struct tls_kse_hw *khwi;
-	uint16_t v2;
-	const uint8_t *p;
+	int sz;
+	const struct tls_ext_hw *ext;
+	const struct tls_kse_hw *khw;
 
-	/* TODO length verification. */
-	hw = buf;
-	for (i = 0; i < 8 && len > 0; ++i) {
-		sw[i].hw = *hw;
-		sw[i].hw.type = ntohs(sw[i].hw.type);
-		sw[i].hw.len = ntohs(sw[i].hw.len);
-		p = (const uint8_t *)(hw + 1);
-
-		switch (sw[i].hw.type) {
-		case 43:
-			/* Supported Version. */
-			assert(sw[i].hw.len == 2);
-			v2 = *(uint16_t *)p;
-			*(uint16_t *)(&sw[i].data[0]) = ntohs(v2);
-			assert(v2 == htons(0x304));
-			break;
-		case 51:
-			/* Key Share. */
-			khwi = (struct tls_kse_hw *)p;
-			khwo = (struct tls_kse_hw *)(&sw[i].data[0]);
-			khwo->group = ntohs(khwi->group);
-			khwo->klen = ntohs(khwi->klen);
-			p += sizeof(*khwo);
-			assert(khwo->klen == 32);
-			memcpy(khwo + 1, p, khwo->klen);
-			ctx->secrets.pub[1] = malloc(khwo->klen);
+	for (ext = exts; exts_len;) {
+		sz = ext->len + sizeof(*ext);
+		exts_len -= sz;
+		assert(exts_len >= 0);
+		if (ext->type == 51) {
+			khw = (struct tls_kse_hw *)(ext + 1);
+			assert(khw->klen == 32);
+			ctx->secrets.pub[1] = malloc(32);
 			assert(ctx->secrets.pub[1]);
-			memcpy(ctx->secrets.pub[1], p, khwo->klen);
-			break;
-		default:
-			printf("%s: unsup %x\n", __func__, sw[i].hw.type);
-			assert(0);
+			memcpy(ctx->secrets.pub[1], khw + 1, 32);
+			return;
 		}
-		n = sizeof(sw[i].hw) + sw[i].hw.len;
-		len -= n;
-		hw = (struct tls_ext_hw *)((char *)hw + n);
+		ext = (struct tls_ext_hw *)((uint8_t *)ext + sz);
 	}
+	assert(0);
 }
 
-void tls_deserialize_shello(struct tls_ctx *ctx, struct tls_shello_sw *sw,
-			    const void *buf, int len)
+static void tls_convert_rec(struct tls_ctx *ctx, struct tls_rec_sw *rsw)
 {
-	const struct tls_shello_hw *hw;
-
-	hw = buf;
-
-	/* Only TLSv1.3 support. */
-	assert(hw->sess_len == 0);
-	assert(hw->comp == 0);
-
-	sw->hw = *hw;
-	sw->hw.ver = ntohs(hw->ver);
-	sw->hw.cipher = ntohs(hw->cipher);
-	sw->hw.exts_len = ntohs(hw->exts_len);
-	assert(sw->hw.exts_len >= 6);	/* RFC. */
-	assert(len == sw->hw.exts_len + (int)sizeof(*hw));
-	tls_deserialize_exts(ctx, sw->exts, hw + 1, sw->hw.exts_len);
-}
-
-void tls_deserialize_encexts(struct tls_ctx *ctx, struct tls_encext_sw *sw,
-			     const void *buf, int len)
-{
-	const struct tls_encext_hw *hw;
-
 	(void)ctx;
+	(void)rsw;
+}
+#else
+static void tls_shello_pub(struct tls_ctx *ctx, const struct tls_ext_hw *exts,
+			   int exts_len)
+{
+	(void)ctx;
+	(void)exts;
+	(void)exts_len;
+}
+
+static void tls_convert_ext(struct tls_ctx *ctx, void *buf, int len, int type)
+{
+	uint16_t *p;
+	uint8_t *q;
+	struct tls_kse_hw *khw;
+
 	(void)len;
 
-	hw = buf;
-
-	sw->hw = *hw;
-	sw->hw.exts_len = ntohs(hw->exts_len);
-
-	/* We support no encrypted extensions yet. */
-	assert(sw->hw.exts_len == 0);
-}
-
-void tls_deserialize_hand(struct tls_ctx *ctx, struct tls_hand_sw *sw,
-			  const void *buf, int len)
-{
-	int n;
-	const uint8_t *p;
-	const struct tls_hand_hw *hw;
-
-	hw = buf;
-	sw->hw = *hw;
-	sw->hw.lenlo = ntohs(hw->lenlo);
-	n  = sw->hw.lenhi << 16;
-	n |= sw->hw.lenlo;
-	assert (len == n + (int)sizeof(*hw));
-
-	switch (hw->type) {
-	case TLS_HT_SHELLO:
-		tls_deserialize_shello(ctx, &sw->u.shello, hw + 1, n);
+	switch (type) {
+	case 13:
+	case 10:
+		/* Signature Algorithms List. */
+		/* Supported Groups List. */
+		p = (uint16_t *)buf;
+		/* We support only 1. */
+		p[0] = htons(p[0]);
+		p[1] = htons(p[1]);
 		break;
-	case TLS_HT_ENCEXT:
-		tls_deserialize_encexts(ctx, &sw->u.encext, hw + 1, n);
-		break;
-	case TLS_HT_CERT:
-		printf("%s: unsup CERT\n", __func__);
-		break;
-	case TLS_HT_CV:
-		printf("%s: unsup CV\n", __func__);
-		p = (const uint8_t *)(hw + 1);
-		for (int i = 0; i < n; ++i)
-			printf("%02x ", p[i]);
-		printf("\n");
-		break;
-	case TLS_HT_FIN:
-		printf("%s: unsup FIN\n", __func__);
-		p = (const uint8_t *)(hw + 1);
-		for (int i = 0; i < n; ++i)
-			printf("%02x ", p[i]);
-		printf("\n");
-
-		break;
-	default:
-		printf("%s: unsup %x\n", __func__, hw->type);
-		assert(0);
-	}
-}
-
-struct tls_rec_sw *tls_deserialize_rec(struct tls_ctx *ctx, const void *buf,
-				       int len)
-{
-	const struct tls_rec_hw *hw;
-	struct tls_rec_sw *sw;
-
-	sw = malloc(sizeof(*sw));
-	assert(sw);
-
-	hw = buf;
-	sw->hw = *hw;
-	sw->hw.ver = ntohs(hw->ver);
-	sw->hw.len = ntohs(hw->len);
-
-	/* Proper input buffer size? */
-	assert(len == (int)sizeof(*hw) + sw->hw.len);
-
-	switch (hw->type) {
-	case TLS_RT_HAND:
-		tls_deserialize_hand(ctx, &sw->u.hand, hw + 1, sw->hw.len);
-		break;
-	case TLS_RT_DATA:
-		memcpy(sw->u.data, hw + 1, sw->hw.len);
-		break;
-	default:
-		printf("%s: unsup %x\n", __func__, hw->type);
-		assert(0);
-	}
-	return sw;
-}
-
-static void tls_serialize_exts(void *buf, int len,
-			       const struct tls_ext_sw sw[8])
-{
-	int i;
-	struct tls_ext_hw *hw;
-	struct tls_kse_hw *khwi, *khwo;
-	uint8_t *p;
-	uint16_t v2;
-
-	hw = buf;
-	for (i = 0; i < 8; ++i) {
-		if (sw[i].hw.type == (uint16_t)-1)
-			break;
-		*hw = sw[i].hw;
-		hw->type = htons(hw->type);
-		hw->len = htons(hw->len);
-		p = (uint8_t *)(hw + 1);
-		switch (sw[i].hw.type) {
-		case 13:
-			/* Signature Algorithms List. */
-		case 10:
-			/* Supported Groups List. */
-			v2 = *(uint16_t *)(&sw[i].data[0]);
-			assert(v2 == 2);	/* We support only 1. */
-			*(uint16_t *)p = htons(v2);
-			p += 2;
-
-			v2 = *(uint16_t *)(&sw[i].data[2]);
-			*(uint16_t *)p = htons(v2);
-			break;
-		case 43:
-			/* Supported Versions List. */
-			v2 = *(uint8_t *)(&sw[i].data[0]);
-			assert(v2 == 2);	/* We support only 1. */
-			*(uint8_t *)p = v2;
-			++p;
-
-			v2 = *(uint16_t *)(&sw[i].data[1]);
-			*(uint16_t *)p = htons(v2);
-			break;
-		case 51:
-			/* Key Share List. We support only 1. */
-			v2 = *(uint16_t *)(&sw[i].data[0]);
-			*(uint16_t *)p = htons(v2);
-			p += 2;
-
-			khwo = (struct tls_kse_hw *)p;
-			khwi = (struct tls_kse_hw *)(&sw[i].data[2]);
-			khwo->group = htons(khwi->group);
-			khwo->klen = htons(khwi->klen);
-			p += sizeof(*khwo);
-			assert(khwi->klen == 32);
-			memcpy(p, khwi + 1, khwi->klen);
-			break;
-		default:
-			printf("%s: unsup %x\n", __func__, sw[i].hw.type);
+	case 43:
+		/* Supported Versions List. */
+		assert(ctx->role == TLS_CLIENT);
+		if (ctx->client_state == TLSC_START)  {
+			/* When chello, this type is a list. */
+			q = (uint8_t *)buf;
+			p = (uint16_t *)(q + 1);
+			/* We support only 1. */
+			p[0] = htons(p[0]);
+		} else if (ctx->client_state == TLSC_WAIT_SH) {
+			/* When shello, this type is singular. */
+			p = (uint16_t *)buf;
+			p[0] = htons(p[0]);
+		} else {
 			assert(0);
 		}
-		hw = (struct tls_ext_hw *)((char *)(hw + 1) + sw[i].hw.len);
-	}
-	(void)len;
-}
-
-static void tls_serialize_chello(void *buf, int len,
-				 const struct tls_chello_sw *sw)
-{
-	struct tls_chello_hw *hw;
-
-	hw = buf;
-	*hw = sw->hw;
-	hw->ver = htons(hw->ver);
-	hw->cipher_len = htons(hw->cipher_len);
-	hw->cipher = htons(hw->cipher);
-	hw->exts_len = htons(hw->exts_len);
-	tls_serialize_exts(hw + 1, len - sizeof(*hw), sw->exts);
-}
-
-static void tls_serialize_hand(void *buf, int len,
-			       const struct tls_hand_sw *sw)
-{
-	struct tls_hand_hw *hw;
-
-	hw = buf;
-	*hw = sw->hw;
-	hw->lenlo = htons(hw->lenlo);
-	switch (hw->type) {
-	case TLS_HT_CHELLO:
-		tls_serialize_chello(hw + 1, len - sizeof(*hw), &sw->u.chello);
+		break;
+	case 51:
+		/* Key Share List. We support only 1. */
+		assert(ctx->role == TLS_CLIENT);
+		if (ctx->client_state == TLSC_START) {
+			p = (uint16_t *)buf;
+			khw = (struct tls_kse_hw *)(p + 1);
+			p[0] = htons(p[0]);
+			khw->group = htons(khw->group);
+			khw->klen = htons(khw->klen);
+		} else if (ctx->client_state == TLSC_WAIT_SH) {
+			khw = (struct tls_kse_hw *)buf;
+			khw->group = htons(khw->group);
+			khw->klen = htons(khw->klen);
+			assert(khw->klen == 32);
+			ctx->secrets.pub[1] = malloc(32);
+			assert(ctx->secrets.pub[1]);
+			memcpy(ctx->secrets.pub[1], khw + 1, 32);
+		}
 		break;
 	default:
-		printf("%s: unsup %x\n", __func__, hw->type);
+		printf("%s: unsup %x\n", __func__, type);
 		assert(0);
 	}
 }
 
-static void tls_serialize_rec(void *buf, int len,
-			      const struct tls_rec_sw *sw)
+/* Called when the rec is in network byte order form. */
+static void tls_convert_exts(struct tls_ctx *ctx, struct tls_ext_hw *exts,
+			     int exts_len)
 {
-	struct tls_rec_hw *hw;
+	int len, sz, out;
+	struct tls_ext_hw *ext, *t;
 
-	hw = buf;
-	*hw = sw->hw;
-	hw->ver = htons(hw->ver);
-	hw->len = htons(hw->len);
-	switch (hw->type) {
-	case TLS_RT_HAND:
-		tls_serialize_hand(hw + 1, len - sizeof(*hw), &sw->u.hand);
-		break;
-	default:
-		printf("%s: unsup type %x\n", __func__, hw->type);
-		assert(0);
+	assert(ctx->role == TLS_CLIENT);
+	out = ctx->client_state == TLSC_START;
+
+	if (out) {
+		len = htons(exts_len);
+		for (ext = exts; len; ext = t) {
+			sz = ext->len + sizeof(*ext);
+			t = (struct tls_ext_hw *)((uint8_t *)ext + sz);
+			len -= sz;
+			assert(len >= 0);
+			tls_convert_ext(ctx, ext + 1, ext->len, ext->type);
+
+			ext->len = htons(ext->len);
+			ext->type = htons(ext->type);
+		}
+	} else {
+		len = exts_len;
+		for (ext = exts; len; ext = t) {
+			ext->len = htons(ext->len);
+			ext->type = htons(ext->type);
+			sz = ext->len + sizeof(*ext);
+			t = (struct tls_ext_hw *)((uint8_t *)ext + sz);
+			len -= sz;
+			assert(len >= 0);
+			tls_convert_ext(ctx, ext + 1, ext->len, ext->type);
+		}
 	}
 }
+
+static void tls_convert_rec(struct tls_ctx *ctx, struct tls_rec_sw *rsw)
+{
+	struct tls_rec_hw *r;
+	struct tls_hand_hw *h;
+	struct tls_chello_hw *ch;
+	struct tls_shello_hw *sh;
+	struct tls_encext_hw *ee;
+
+	r = rsw->rec;
+
+	h = rsw->u1.hand;
+	ch = rsw->u2.chello;
+	sh = rsw->u2.shello;
+	ee = rsw->u2.encext;
+
+	r->ver = htons(r->ver);
+	r->len = htons(r->len);
+	if (r->type == TLS_RT_HAND) {
+		h->lenlo = htons(h->lenlo);
+		switch (h->type) {
+		case TLS_HT_CHELLO:
+			ch->ver = htons(ch->ver);
+			ch->cipher_len = htons(ch->cipher_len);
+			ch->cipher = htons(ch->cipher);
+			ch->exts_len = htons(ch->exts_len);
+			tls_convert_exts(ctx, rsw->exts, ch->exts_len);
+			break;
+		case TLS_HT_SHELLO:
+			sh->ver = htons(sh->ver);
+			sh->cipher = htons(sh->cipher);
+			sh->exts_len = htons(sh->exts_len);
+			tls_convert_exts(ctx, rsw->exts, sh->exts_len);
+			break;
+		case TLS_HT_ENCEXT:
+			ee->exts_len = htons(ee->exts_len);
+			assert(ee->exts_len == 0);
+			break;
+		case TLS_HT_CERT:
+			printf("unsup CERT\n");
+			break;
+		case TLS_HT_CV:
+			printf("unsup CV\n");
+			break;
+		case TLS_HT_FIN:
+			printf("unsup FIN\n");
+			break;
+		default:
+			printf("%d\n", h->type);
+			assert(0);
+		}
+	} else {
+		assert(0);
+	}
+	return;
+}
+#endif
 
 static struct tls_rec_sw *tls_new_chello(const struct tls_ctx *ctx)
 {
 	int n;
+	uint8_t *q;
+	uint16_t *p;
+	uint8_t *buf;
 	struct tls_rec_sw *rsw;
-	struct tls_hand_sw *hsw;
-	struct tls_chello_sw *chsw;
-	struct tls_ext_sw *ext;
+	struct tls_rec_hw *r;
+	struct tls_hand_hw *h;
+	struct tls_chello_hw *ch;
+	struct tls_ext_hw *ext;
 	struct tls_kse_hw *khw;
+
+	/* TODO Change the size once larger CHello is needed. */
+	buf = malloc(512);
+	assert(buf);
 
 	rsw = malloc(sizeof(*rsw));
 	assert(rsw);
 
-	rsw->hw.type = TLS_RT_HAND;
-	rsw->hw.ver = TLS_12;
+	r = (struct tls_rec_hw *)buf;
+	rsw->rec = r;
+	r->type = TLS_RT_HAND;
+	r->ver = TLS_12;
 
-	hsw = &rsw->u.hand;
-	hsw->hw.type = TLS_HT_CHELLO;
+	h = (struct tls_hand_hw *)((uint8_t *)r + sizeof(*r));
+	rsw->u1.hand = h;
+	h->type = TLS_HT_CHELLO;
 
-	chsw = &hsw->u.chello;
-	memset(&chsw->hw.rnd, 0, 32);
-	//rndm_fill(&chsw->hw.rnd, 32 << 3);
-	chsw->hw.ver = TLS_12;
-	chsw->hw.sess_len = 0;
-	chsw->hw.cipher_len = 2;
-	chsw->hw.cipher = 0x1303;	/* TLS_CHACHA20_POLY1305_SHA256. */
-	chsw->hw.comp_len = 1;
-	chsw->hw.comp = 0;
-	chsw->hw.exts_len = 0;
+	ch = (struct tls_chello_hw *)((uint8_t *)h + sizeof(*h));
+	rsw->u2.chello = ch;
+	memset(ch->rnd, 0, 32);
+	//rndm_fill(h->rnd, 32 << 3);
+	ch->ver = TLS_12;
+	ch->sess_len = 0;
+	ch->cipher_len = 2;
+	ch->cipher = 0x1303;	/* TLS_CHACHA20_POLY1305_SHA256. */
+	ch->comp_len = 1;
+	ch->comp = 0;		/* Compression = None. */
+	ch->exts_len = 0;
 
 	/* Supported Groups List. */
-	ext = &chsw->exts[0];
-	ext->hw.type = 10;
-	*(uint16_t *)(&ext->data[0]) = 2;
-	*(uint16_t *)(&ext->data[2]) = 29;	/* X25519 */
-	ext->hw.len = 4;
-	chsw->hw.exts_len += ext->hw.len;
+	ext = (struct tls_ext_hw *)((uint8_t *)ch + sizeof(*ch));
+	rsw->exts = ext;
+	p = (uint16_t *)(ext + 1);
+	ext->type = 10;
+	ext->len = 4;
+	p[0] = 2;
+	p[1] = 29;	/* X25519 */
+	p += 2;
+	ch->exts_len += ext->len;
 
 	/* Signature Algorithms List. */
-	ext = &chsw->exts[1];
-	ext->hw.type = 13;
-	*(uint16_t *)(&ext->data[0]) = 2;
-	*(uint16_t *)(&ext->data[2]) = 0x807;	/* Ed25519 */
-	ext->hw.len = 4;
-	chsw->hw.exts_len += ext->hw.len;
+	ext = (struct tls_ext_hw *)p;
+	p = (uint16_t *)(ext + 1);
+	ext->type = 13;
+	ext->len = 4;
+	p[0] = 2;
+	p[1] = 0x807;	/* Ed25519 */
+	p += 2;
+	ch->exts_len += ext->len;
 
 	/* Supported Versions List. */
-	ext = &chsw->exts[2];
-	ext->hw.type = 43;
-	*(uint8_t *)(&ext->data[0]) = 2;
-	*(uint16_t *)(&ext->data[1]) = 0x304;	/* TLSv1.3 */
-	ext->hw.len = 3;
-	chsw->hw.exts_len += ext->hw.len;
+	ext = (struct tls_ext_hw *)p;
+	q = (uint8_t *)(ext + 1);
+	p = (uint16_t *)(q + 1);
+	ext->type = 43;
+	ext->len = 3;
+	q[0] = 2;
+	p[0] = 0x304;	/* TLSv1.3 */
+	++p;
+	ch->exts_len += ext->len;
 
 	/* Key Share List. */
-	ext = &chsw->exts[3];
-	ext->hw.type = 51;
+	ext = (struct tls_ext_hw *)p;
+	p = (uint16_t *)(ext + 1);
+	ext->type = 51;
+	ext->len = sizeof(*khw) + 32 + 2;
 	/* Client key share length. */
-	*(uint16_t *)(&ext->data[0]) = sizeof(*khw) + 32;
-	khw = (struct tls_kse_hw *)(&ext->data[2]);
+	p[0] = sizeof(*khw) + 32;
+	khw = (struct tls_kse_hw *)(p + 1);
 	khw->group = 29;	/* X25519. */
 	khw->klen = 32;
 	memcpy(khw + 1, ctx->secrets.pub[0], 32);
-	ext->hw.len = sizeof(*khw) + 32 + 2;
-	chsw->hw.exts_len += ext->hw.len;
-
-	/* Software end. Used by the serializer. */
-	ext = &chsw->exts[4];
-	ext->hw.type = -1;
+	ch->exts_len += ext->len;
 
 	/* Fill in various lengths from bottom up. */
-	chsw->hw.exts_len += 4 * sizeof(struct tls_ext_hw);
-	n = chsw->hw.exts_len + sizeof(chsw->hw);
-	hsw->hw.lenhi = n >> 16;
-	hsw->hw.lenlo = n & 0xffff;
-	rsw->hw.len = n + sizeof(hsw->hw);
+	ch->exts_len += 4 * sizeof(*ext);
+	n = ch->exts_len + sizeof(*ch);
+	h->lenhi = n >> 16;
+	h->lenlo = n & 0xffff;
+	r->len = n + sizeof(*h);
 	return rsw;
 }
 
@@ -661,10 +601,12 @@ void tls_client_machine(struct tls_ctx *ctx, const char *ip, short port)
 	int n, sock, ret, sz, rhsz;
 	uint8_t *buf;
 	struct sockaddr_in srvr = {0};
-	const struct tls_hand_hw *hhw;
-	struct tls_rec_hw *rhw;
+	struct tls_rec_hw *r;
+	struct tls_hand_hw *h;
+	struct tls_shello_hw *sh;
 	struct tls_rec_sw *rsw;
 
+	(void)cs;
 	assert(ctx->role == TLS_CLIENT);
 	buf = malloc(32*1024);
 	assert(buf);
@@ -679,39 +621,36 @@ void tls_client_machine(struct tls_ctx *ctx, const char *ip, short port)
 	inet_pton(AF_INET, ip, &srvr.sin_addr);
 	ret = connect(sock, (const struct sockaddr *)&srvr, sizeof(srvr));
 	assert(ret == 0);
+	goto skip;
 skip:
 	/* TLSC_START */
 	rsw = tls_new_chello(ctx);
-	n = rsw->hw.len + rhsz;
-	assert( n > 0 && n < 32 * 1024);
-	tls_serialize_rec(buf, n, rsw);
+	n = rsw->rec->len;
+
+	ctx->client_state = TLSC_START;
+	tls_convert_rec(ctx, rsw);
 
 	/* Begin the trasncript hash. */
 	sha256_init(&ctx->transcript.hctx);
-	sha256_update(&ctx->transcript.hctx, buf + rhsz, n - rhsz);
-
+	sha256_update(&ctx->transcript.hctx, (uint8_t *)rsw->rec + rhsz, n);
 	tls_derive_early_secrets(ctx);
+
 	f = fopen("/tmp/shello", "rb");
-#if 0
-	ret = send(sock, buf, n, 0);
-	assert(ret == n);
-#endif
+	//ret = send(sock, rsw->rec, n + rhsz, 0);
+	//assert(ret == n);
+
+	free(rsw->rec);
 	ctx->client_state = TLSC_WAIT_SH;
 	/* TLSC_START Ends */
 
 
 
-
-
+	r = rsw->rec = (struct tls_rec_hw *)buf;
 	for (;;) {
-		rsw = NULL;
-
 		/* Read a record header. */
 		//n = recv(sock, buf, sizeof(*rhw), 0);
 		n = fread(buf, 1, rhsz, f);
 		assert(n == rhsz);
-
-		rhw = (struct tls_rec_hw *)buf;
 
 		/* Apply checks. */
 		switch (ctx->client_state) {
@@ -720,14 +659,18 @@ skip:
 		case TLSC_WAIT_CERT:
 		case TLSC_WAIT_CV:
 		case TLSC_WAIT_FIN:
-			assert(rhw->type == TLS_RT_DATA);
+			assert(r->type == TLS_RT_DATA);
+			h = rsw->u1.hand = (struct tls_hand_hw *)(r + 1);
 			break;
 		case TLSC_WAIT_CCS:
-			assert(rhw->type == TLS_RT_CCS);
-			assert(ntohs(rhw->len) == 1);
+			assert(r->type == TLS_RT_CCS);
+			assert(ntohs(r->len) == 1);
 			break;
 		case TLSC_WAIT_SH:
-			assert(rhw->type == TLS_RT_HAND);
+			assert(r->type == TLS_RT_HAND);
+			h = rsw->u1.hand = (struct tls_hand_hw *)(r + 1);
+			sh = rsw->u2.shello = (struct tls_shello_hw *)(h + 1);
+			rsw->exts = (struct tls_ext_hw *)(sh + 1);
 			break;
 		default:
 			assert(0);
@@ -735,19 +678,16 @@ skip:
 		}
 
 		/* Read the record payload. */
-		sz = ntohs(rhw->len);
+		sz = ntohs(r->len);
 		//n = recv(sock, rhw + 1, ntohs(rhw->len), 0);
-		n = fread(rhw + 1, 1, sz, f);
+		n = fread(r + 1, 1, sz, f);
 		assert(n == sz);
 
-		/*
-		 * Calculate the total size of the record, including
-		 * header and payload.
-		 */
-		n += rhsz;
-
 		/* Update the running transcript hash. */
-		sha256_update(&ctx->transcript.hctx, buf + rhsz, n - rhsz);
+		sha256_update(&ctx->transcript.hctx, r + 1, sz);
+
+		/* Total size of the record. */
+		n += rhsz;
 
 		/* Process the record. */
 		switch (ctx->client_state) {
@@ -757,10 +697,11 @@ skip:
 		case TLSC_WAIT_FIN:
 			n = tls_decipher_handshake(ctx, buf, n);
 			/* Craft a handshake record for deserialization. */
-			rhw->type = TLS_RT_HAND;
-			rhw->len = htons(n);
+			r->type = TLS_RT_HAND;
+			r->len = htons(n);
+
+			tls_convert_rec(ctx, rsw);
 			n += rhsz;
-			rsw = tls_deserialize_rec(ctx, buf, n);
 
 			cs = ctx->client_state;
 
@@ -797,20 +738,14 @@ skip:
 			ctx->client_state = TLSC_WAIT_EE;
 			break;
 		case TLSC_WAIT_SH:
-			hhw = (const struct tls_hand_hw *)(rhw + 1);
-			assert(hhw->type == TLS_HT_SHELLO);
-
-			/*
-			 * Deserialize fills in the server's ECHDE key
-			 * share.
-			 */
-			rsw = tls_deserialize_rec(ctx, buf, n);
+			assert(h->type == TLS_HT_SHELLO);
+			tls_convert_rec(ctx, rsw);
+			tls_shello_pub(ctx, rsw->exts, sh->exts_len);
 			tls_derive_handshake_secrets(ctx);
 			ctx->client_state = TLSC_WAIT_CCS;
 			break;
 		default:
 			assert(0);
 		}
-		free(rsw);
 	}
 }

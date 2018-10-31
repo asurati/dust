@@ -100,41 +100,18 @@ struct tls_kse_hw {
 
 
 /* Do not use any pointers in the sw structures. */
-struct tls_ext_sw {
-	struct tls_ext_hw hw;
-	uint8_t data[0x10000];
-};
-
-struct tls_chello_sw {
-	struct tls_chello_hw hw;
-	struct tls_ext_sw exts[8];
-};
-
-struct tls_shello_sw {
-	struct tls_shello_hw hw;
-	struct tls_ext_sw exts[8];
-};
-
-struct tls_encext_sw {
-	struct tls_encext_hw hw;
-	struct tls_ext_sw exts[8];
-};
-
-struct tls_hand_sw {
-	struct tls_hand_hw hw;
-	union {
-		struct tls_chello_sw chello;
-		struct tls_shello_sw shello;
-		struct tls_encext_sw encext;
-	} u;
-};
-
 struct tls_rec_sw {
-	struct tls_rec_hw hw;
+	struct tls_rec_hw *rec;
 	union {
-		struct tls_hand_sw hand;
-		uint8_t data[0x1000];
-	} u;
+		struct tls_hand_hw *hand;
+		uint8_t *data;
+	} u1;
+	union {
+		struct tls_chello_hw *chello;
+		struct tls_shello_hw *shello;
+		struct tls_encext_hw *encext;
+	} u2;
+	struct tls_ext_hw *exts;
 };
 
 struct tls_secrets {
