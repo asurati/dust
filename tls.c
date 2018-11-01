@@ -652,10 +652,9 @@ skip:
 		n = fread(buf, 1, rhsz, f);
 		assert(n == rhsz);
 
-		/* Apply checks. */
+		/* Apply checks on the record header. Assign pointers. */
 		switch (ctx->client_state) {
 		case TLSC_WAIT_EE:
-		case TLSC_WAIT_CERT_CR:
 		case TLSC_WAIT_CERT:
 		case TLSC_WAIT_CV:
 		case TLSC_WAIT_FIN:
