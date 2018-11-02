@@ -24,7 +24,7 @@ static const int bn_nlimbs[NUM_LIMB_SIZES] = {
 };
 
 static const int limbs_nfree[NUM_LIMB_SIZES] = {
-	20,20,20,20,
+	20,20,20,40,
 	30,20,10,10,
 	10,10,10,10
 };

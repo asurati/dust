@@ -20,4 +20,5 @@ void	chacha20_enc(struct chacha20_ctx *ctx, void *out, const void *in,
 	int len);
 void	chacha20_dec(struct chacha20_ctx *ctx, void *out, const void *in,
 	int len);
+void	hchacha20(uint8_t *out, const uint8_t *key, const void *nonce);
 #endif

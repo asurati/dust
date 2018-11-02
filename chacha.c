@@ -132,3 +132,61 @@ void chacha20_dec(struct chacha20_ctx *ctx, void *out, const void *in, int len)
 {
 	chacha20_enc(ctx, out, in, len);
 }
+
+void hchacha20(uint8_t *out, const uint8_t *key, const void *nonce)
+{
+	static struct chacha20 c;
+	const uint32_t *cnst = (const uint32_t *)sigma;
+	const uint32_t *k = (const uint32_t *)key;
+	const uint32_t *n = nonce;
+	uint32_t *stream;
+	uint8_t *s;
+	int i;
+
+	assert(out);
+	assert(key);
+	assert(nonce);
+
+	c.state[0]	= htole32(cnst[0]);
+	c.state[1]	= htole32(cnst[1]);
+	c.state[2]	= htole32(cnst[2]);
+	c.state[3]	= htole32(cnst[3]);
+
+	c.state[4]	= htole32(k[0]);
+	c.state[5]	= htole32(k[1]);
+	c.state[6]	= htole32(k[2]);
+	c.state[7]	= htole32(k[3]);
+	c.state[8]	= htole32(k[4]);
+	c.state[9]	= htole32(k[5]);
+	c.state[10]	= htole32(k[6]);
+	c.state[11]	= htole32(k[7]);
+
+	c.state[12]	= htole32(n[0]);
+	c.state[13]	= htole32(n[1]);
+	c.state[14]	= htole32(n[2]);
+	c.state[15]	= htole32(n[3]);
+
+	stream = c.stream;
+	memcpy(stream, c.state, sizeof(c.state));
+	for (i = 0; i < 10; ++i) {
+		QR(stream, 0, 4, 8, 12);
+		QR(stream, 1, 5, 9, 13);
+		QR(stream, 2, 6, 10, 14);
+		QR(stream, 3, 7, 11, 15);
+
+		QR(stream, 0, 5, 10, 15);
+		QR(stream, 1, 6, 11, 12);
+		QR(stream, 2, 7, 8, 13);
+		QR(stream, 3, 4, 9, 14);
+	}
+
+	for (i = 0; i < 16; ++i)
+		stream[i] = le32toh(stream[i]);
+
+	s = (uint8_t *)c.stream;
+	for (i = 0; i < 16; ++i)
+		out[i] = s[i];
+
+	for (i = 0; i < 16; ++i)
+		out[16 + i] = s[48 + i];
+}
