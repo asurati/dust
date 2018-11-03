@@ -35,7 +35,7 @@ struct endpoint {
 	struct ec *ec;
 	struct bn *espriv, *erpriv, *lspriv, *lrpriv;
 	struct ec_point *espub, *lspub, *erpub, *lrpub;
-	struct bn *espubx, *lspubx, *erpubx, *lrpubx;
+	struct bn *ee[2], *el[2], *le[2];
 
 	uint8_t ak2[32], ek2[32], ak3[32], ek3[32];
 	uint8_t tag2[16], tag3[16];
@@ -62,17 +62,20 @@ void free_endpoint(struct endpoint *e)
 {
 	bn_free(e->espriv);
 	bn_free(e->lspriv);
-	bn_free(e->espubx);
-	bn_free(e->lspubx);
 	ec_point_free(e->ec, e->espub);
 	ec_point_free(e->ec, e->lspub);
 
 	bn_free(e->erpriv);
 	bn_free(e->lrpriv);
-	bn_free(e->erpubx);
-	bn_free(e->lrpubx);
 	ec_point_free(e->ec, e->erpub);
 	ec_point_free(e->ec, e->lrpub);
+
+	bn_free(e->ee[0]);
+	bn_free(e->ee[1]);
+	bn_free(e->el[0]);
+	bn_free(e->el[1]);
+	bn_free(e->le[0]);
+	bn_free(e->le[1]);
 
 	ec_free(e->ec);
 }
@@ -93,121 +96,146 @@ void init_endpoint(struct endpoint *e)
 	e->lspriv = bn_rand();
 	e->espub = ec_gen_public(ec, e->espriv);
 	e->lspub = ec_gen_public(ec, e->lspriv);
-	e->espubx = ec_point_x(ec, e->espub);
-	e->lspubx = ec_point_x(ec, e->lspub);
 
 	e->erpriv = bn_rand();
 	e->lrpriv = bn_rand();
 	e->erpub = ec_gen_public(ec, e->erpriv);
 	e->lrpub = ec_gen_public(ec, e->lrpriv);
-	e->erpubx = ec_point_x(ec, e->erpub);
-	e->lrpubx = ec_point_x(ec, e->lrpub);
 	e->ec = ec;
 }
 
-const uint8_t zeroes[64];
-void calc_key(const struct ec *ec, uint8_t *out, const struct ec_point *pub,
-	      const struct bn *priv, int nv)
+struct bn *X25519(const struct ec *ec, const struct bn *priv,
+		  const struct ec_point *pub)
 {
-	struct ec_point *ep;
-	struct bn *t;
-	uint8_t *p;
-	int n;
-	static uint8_t nonce[16];
+	struct ec_point *tpub;
+	struct bn *x;
 
-	memset(nonce, 0, sizeof(nonce));
-	ep = ec_point_new_copy(ec, pub);
-	ec_scale(ec, ep, priv);
-	t = ec_point_x(ec, ep);
-	ec_point_free(ec, ep);
-	p = bn_to_bytes_le(t, &n);
-	bn_free(t);
-	assert(n == 32);
-
-	nonce[0] = nv;
-	hchacha20(out, p, nonce);
-	free(p);
+	tpub = ec_point_new_copy(ec, pub);
+	ec_scale(ec, tpub, priv);
+	x = ec_point_x(ec, tpub);
+	ec_point_free(ec, tpub);
+	return x;
 }
 
+const uint8_t zeroes[64];
 void shared_secret(struct endpoint *e)
 {
-	uint8_t *s[4];
+	uint8_t *p[8];
 	int i, n;
+	struct bn *t;
 	static uint8_t nonce[16];
-	static uint8_t k1[32], k2[32], k3[32];
+	static uint8_t k[3][32];
 	static struct chacha20_ctx ctx;
 	static struct poly1305_ctx pctx;
 
+	/* Shared secrets. */
+
+	/* X25519(es, ER) == X25519(er, ES). */
+	e->ee[0] = X25519(e->ec, e->espriv, e->erpub);
+	e->ee[1] = X25519(e->ec, e->erpriv, e->espub);
+	assert(bn_cmp_abs(e->ee[0], e->ee[1]) == 0);
+
+	/* X25519(es, LR) == X25519(lr, ES). */
+	e->el[0] = X25519(e->ec, e->espriv, e->lrpub);
+	e->el[1] = X25519(e->ec, e->lrpriv, e->espub);
+	assert(bn_cmp_abs(e->el[0], e->el[1]) == 0);
+
+	/* X25519(ls, ER) == X25519(er, LS). */
+	e->le[0] = X25519(e->ec, e->lspriv, e->erpub);
+	e->le[1] = X25519(e->ec, e->erpriv, e->lspub);
+	assert(bn_cmp_abs(e->le[0], e->le[1]) == 0);
+
+	/* Keys k1, k2, k3 == k[0], k[1], k[2]. */
 	memset(nonce, 0, sizeof(nonce));
-
-	/* X25519(scalar, point) == ec_scale(ec, point, scalar). */
-
-	/* k1 = hchacha20(X25519(ES, ER), 0). */
-	calc_key(e->ec, k1, e->erpub, e->espubx, 0);
-
-	/* k2 = hchacha20(X25519(ES, LR), 1). */
-	calc_key(e->ec, k2, e->lrpub, e->espubx, 1);
-
-	/* k3 = hchacha20(X25519(LS, ER), 2). */
-	calc_key(e->ec, k3, e->erpub, e->lspubx, 2);
-
-	for (i = 0; i < 32; ++i)
-		k2[i] ^= k1[i];
+	p[0] = bn_to_bytes_le(e->ee[0], &n);
+	assert(n == 32);
+	p[1] = bn_to_bytes_le(e->el[0], &n);
+	assert(n == 32);
+	p[2] = bn_to_bytes_le(e->le[0], &n);
+	assert(n == 32);
+	for (i = 0; i < 3; ++i) {
+		nonce[0] = i;
+		hchacha20(k[i], p[i], nonce);
+		free(p[i]);
+	}
 
 	for (i = 0; i < 32; ++i)
-		k3[i] ^= k2[i];
+		k[1][i] ^= k[0][i];
 
-	chacha20_init(&ctx, k2, zeroes, 0);
+	for (i = 0; i < 32; ++i)
+		k[2][i] ^= k[1][i];
+
+	/* AK, EK. */
+	chacha20_init(&ctx, k[1], zeroes, 0);
 	chacha20_enc(&ctx, e->ak2, zeroes, 32);
 	chacha20_enc(&ctx, e->ek2, zeroes, 32);
-	chacha20_init(&ctx, k3, zeroes, 0);
+	chacha20_init(&ctx, k[2], zeroes, 0);
 	chacha20_enc(&ctx, e->ak3, zeroes, 32);
 	chacha20_enc(&ctx, e->ek3, zeroes, 32);
 
-	s[0] = bn_to_bytes_le(e->lrpubx, &n);
+	/* LS */
+	t = ec_point_x(e->ec, e->lspub);
+	p[0] = bn_to_bytes_le(t, &n);
+	bn_free(t);
 	assert(n == 32);
-	s[1] = bn_to_bytes_le(e->espubx, &n);
+
+	/* ES */
+	t = ec_point_x(e->ec, e->espub);
+	p[1] = bn_to_bytes_le(t, &n);
+	bn_free(t);
 	assert(n == 32);
-	s[2] = bn_to_bytes_le(e->erpubx, &n);
+
+	/* ER */
+	t = ec_point_x(e->ec, e->erpub);
+	p[2] = bn_to_bytes_le(t, &n);
+	bn_free(t);
 	assert(n == 32);
-	s[3] = bn_to_bytes_le(e->lspubx, &n);
+
+	/* XS */
+	t = ec_point_x(e->ec, e->lspub);
+	p[3] = bn_to_bytes_le(t, &n);
+	bn_free(t);
 	assert(n == 32);
 	for (i = 0; i < 32; ++i)
-		s[3][i] ^= e->ek2[i];
+		p[3][i] ^= e->ek2[i];
 
+	/* Poly1305(AK2, LS || ES || ER). */
 	poly1305_init(&pctx, e->ak2);
-	poly1305_update(&pctx, s[0], 32);
-	poly1305_update(&pctx, s[1], 32);
-	poly1305_update(&pctx, s[2], 32);
+	poly1305_update(&pctx, p[0], 32);
+	poly1305_update(&pctx, p[1], 32);
+	poly1305_update(&pctx, p[2], 32);
 	poly1305_final(&pctx, e->tag2);
 
+	/* Poly1305(AK3, LS || ES || ER || XS). */
 	poly1305_init(&pctx, e->ak3);
-	poly1305_update(&pctx, s[0], 32);
-	poly1305_update(&pctx, s[1], 32);
-	poly1305_update(&pctx, s[2], 32);
-	poly1305_update(&pctx, s[3], 32);
+	poly1305_update(&pctx, p[0], 32);
+	poly1305_update(&pctx, p[1], 32);
+	poly1305_update(&pctx, p[2], 32);
+	poly1305_update(&pctx, p[3], 32);
 	poly1305_final(&pctx, e->tag3);
 
-	printf("All numbers encoded as little-endian byte-array\n");
+	printf("All numbers encoded as little-endian byte-arrays:\n");
 	printf("request: ");
 	for (i = 0; i < 32; ++i)
-		printf("%02x", s[1][i]);
+		printf("%02x", p[1][i]);
 	printf("\n");
 	printf("response: ");
 	for (i = 0; i < 32; ++i)
-		printf("%02x", s[2][i]);
+		printf("%02x", p[2][i]);
 	printf(" ");
 	for (i = 0; i < 16; ++i)
 		printf("%02x", e->tag2[i]);
 	printf("\n");
 	printf("confirmation: ");
 	for (i = 0; i < 32; ++i)
-		printf("%02x", s[3][i]);
+		printf("%02x", p[3][i]);
 	printf(" ");
 	for (i = 0; i < 16; ++i)
 		printf("%02x", e->tag3[i]);
 	printf("\n");
 
+	for (i = 0; i < 4; ++i)
+		free(p[i]);
 }
 
 int main()
