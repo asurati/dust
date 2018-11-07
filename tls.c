@@ -24,19 +24,12 @@
 #include <sys/tls.h>
 
 /* Numbers as big-endian strings. */
-const char *c25519_prime	=
-"7fffffffffffffff ffffffffffffffff ffffffffffffffff ffffffffffffffed";
-const char *c25519_a		= "76d06";	// hex(486662)
-const char *c25519_b		= "1";
-const char *c25519_gx		= "9";
-const char *c25519_order	=
-"1000000000000000 0000000000000000 14def9dea2f79cd6 5812631a5cf5d3ed";
-
-/* Numbers as big-endian strings. */
-const char *priv_str	=
+static const char *priv_str	=
 "59effe2eb776d8e7118dda26b46cce413bfa0e2d4993acabaae91cf16c8c7d28";
-const char *pub_str	=
+/*
+static const char *pub_str	=
 "671e3b404cd8512b5077822a2e7764d614cdda6f67d3c6433ce63d5bcb132b7d";
+*/
 
 static void tls_hkdf_expand_label(uint8_t *out, int olen, const void *secret,
 				  const char *label, const void *thash)
@@ -400,11 +393,11 @@ struct tls_ctx *tls_ctx_new()
 	struct ec_mont_params emp;
 	struct sha256_ctx hctx;
 
-	emp.prime	= c25519_prime;
-	emp.a		= c25519_a;
-	emp.b		= c25519_b;
-	emp.gx		= c25519_gx;
-	emp.order	= c25519_order;
+	emp.prime	= c25519_prime_be;
+	emp.a		= c25519_a_be;
+	emp.b		= c25519_b_be;
+	emp.gx		= c25519_gx_be;
+	emp.order	= c25519_order_be;
 
 	ctx = malloc(sizeof(*ctx));
 	assert(ctx);
@@ -419,7 +412,10 @@ struct tls_ctx *tls_ctx_new()
 	assert(n == 32);
 
 	ec = ec_new_montgomery(&emp);
-	pub = ec_gen_public(ec, priv);
+
+	/* Generate public key. */
+	pub = EC_POINT_INVALID;
+	ec_scale(ec, &pub, priv);
 	t = ec_point_x(ec, pub);
 	/* On-Wire format is little-endian byte array. */
 	ctx->secrets.pub[0] = bn_to_bytes_le(t, &n);	/* My public. */
@@ -495,11 +491,11 @@ static void tls_derive_handshake_secrets(struct tls_ctx *ctx)
 	struct ec_mont_params emp;
 
 	/* Calculate the ECDHE shared secret. */
-	emp.prime	= c25519_prime;
-	emp.a		= c25519_a;
-	emp.b		= c25519_b;
-	emp.gx		= c25519_gx;
-	emp.order	= c25519_order;
+	emp.prime	= c25519_prime_be;
+	emp.a		= c25519_a_be;
+	emp.b		= c25519_b_be;
+	emp.gx		= c25519_gx_be;
+	emp.order	= c25519_order_be;
 
 	ec = ec_new_montgomery(&emp);
 	priv = bn_new_from_bytes_le(ctx->secrets.priv, 32);
@@ -510,7 +506,7 @@ static void tls_derive_handshake_secrets(struct tls_ctx *ctx)
 	 */
 	t = bn_new_from_bytes_le(ctx->secrets.pub[1], 32);
 	pub = ec_point_new(ec, t, NULL, NULL);
-	ec_scale(ec, pub, priv);
+	ec_scale(ec, &pub, priv);
 	bn_free(priv);
 	bn_free(t);
 	t = ec_point_x(ec, pub);
