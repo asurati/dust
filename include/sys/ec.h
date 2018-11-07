@@ -38,4 +38,12 @@ struct ec {
 		struct ec_mont mont;
 	} u;
 };
+
+struct edc {
+	struct ec *ec;
+	struct bn *cnst_sqrt;
+	uint8_t priv_dgst[SHA512_DIGEST_LEN];	/* H(priv). */
+	uint8_t pub[32];
+	char to_sign;
+};
 #endif

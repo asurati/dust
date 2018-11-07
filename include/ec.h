@@ -9,6 +9,12 @@
 
 #include <bn.h>
 
+extern const char *c25519_prime_be;
+extern const char *c25519_a_be;
+extern const char *c25519_b_be;
+extern const char *c25519_gx_be;
+extern const char *c25519_order_be;
+
 #define EC_INVALID			(struct ec *)NULL
 #define EC_POINT_INVALID		(struct ec_point *)NULL
 
@@ -35,9 +41,23 @@ void		 ec_point_free(const struct ec *ec, struct ec_point *a);
 void		 ec_point_print(const struct ec *ec, const struct ec_point *a);
 struct bn	*ec_point_x(const struct ec *ec, const struct ec_point *a);
 
-void		 ec_scale(const struct ec *ec, struct ec_point *a,
+void		 ec_scale(const struct ec *ec, struct ec_point **a,
 		 const struct bn *b);
-struct ec_point	*ec_gen_public(const struct ec *ec, const struct bn *priv);
-//void		 ec_gen_shared(const struct ec *ec, const struct bn *priv,
-//		 struct ec_point *pub);
+
+
+/* edc is the context for ed25519. */
+struct edc;
+
+#define EDC_INVALID			(struct edc *)NULL
+
+/*
+ * private key is a byte-array, with no specific structure, not even
+ * numeric. Length assumed to be 32 bytes.
+ */
+
+struct edc	*edc_new_sign(const uint8_t *priv);
+struct edc	*edc_new_verify(const uint8_t *pub);
+void		 edc_free(struct edc *edc);
+void		 edc_sign(const struct edc *edc, uint8_t *tag,
+		 const uint8_t *msg, int mlen);
 #endif
