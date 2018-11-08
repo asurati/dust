@@ -15,6 +15,11 @@ extern const char *c25519_b_be;
 extern const char *c25519_gx_be;
 extern const char *c25519_order_be;
 
+extern const char *ed25519_a_be;
+extern const char *ed25519_d_be;
+extern const char *ed25519_gx_be;
+extern const char *ed25519_gy_be;
+
 #define EC_INVALID			(struct ec *)NULL
 #define EC_POINT_INVALID		(struct ec_point *)NULL
 
@@ -30,7 +35,17 @@ struct ec_mont_params {
 	const char *order;	/* Order of the base/gen point. */
 };
 
+struct ec_edwards_params {
+	const char *prime;
+	const char *a;	/* a != 1 => twisted curve. */
+	const char *d;
+	const char *gx;
+	const char *gy;	/* Projective coordinates with Z = 1. */
+	const char *order;	/* Order of the base/gen point. */
+};
+
 struct ec	*ec_new_montgomery(const struct ec_mont_params *p);
+struct ec	*ec_new_edwards(const struct ec_edwards_params *p);
 void		 ec_free(struct ec *ec);
 
 struct ec_point	*ec_point_new(const struct ec *ec, const struct bn *x,
@@ -40,6 +55,7 @@ struct ec_point	*ec_point_new_copy(const struct ec *ec,
 void		 ec_point_free(const struct ec *ec, struct ec_point *a);
 void		 ec_point_print(const struct ec *ec, const struct ec_point *a);
 struct bn	*ec_point_x(const struct ec *ec, const struct ec_point *a);
+struct bn	*ec_point_y(const struct ec *ec, const struct ec_point *a);
 
 void		 ec_scale(const struct ec *ec, struct ec_point **a,
 		 const struct bn *b);

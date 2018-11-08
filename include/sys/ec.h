@@ -32,16 +32,25 @@ struct ec_mont {
 	struct bn_ctx_mont *mctx;
 };
 
+struct ec_edwards {
+	struct bn *prime;
+	struct bn *a;
+	struct bn *d;
+	struct bn *order;
+	struct ec_point gen;
+	struct bn_ctx_mont *mctx;
+};
+
 struct ec {
 	enum ec_form form;
 	union {
 		struct ec_mont mont;
+		struct ec_edwards edwards;
 	} u;
 };
 
 struct edc {
 	struct ec *ec;
-	struct bn *cnst_sqrt;
 	uint8_t priv_dgst[SHA512_DIGEST_LEN];	/* H(priv). */
 	uint8_t pub[32];
 	char to_sign;
