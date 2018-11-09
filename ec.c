@@ -359,6 +359,18 @@ void ecm_scale(const struct ec_mont *ec, struct ec_point **_a,
 
 
 
+/* Equal or not equal. */
+static int ece_points_equal(const struct ec_edwards *ec,
+			    const struct ec_point *a, const struct ec_point *b)
+{
+	assert(ec != EC_INVALID);
+	assert(a != EC_POINT_INVALID);
+	assert(b != EC_POINT_INVALID);
+
+	return (bn_cmp(a->x, b->x) == 0) && (bn_cmp(a->y, b->y) == 0) &&
+		(bn_cmp(a->z, b->z) == 0);
+}
+
 struct bn *ece_point_x(const struct ec_edwards *ec, const struct ec_point *a)
 {
 	struct bn *t;
@@ -995,8 +1007,7 @@ void edc_verify(const struct edc *edc, const uint8_t *msg, int mlen)
 	ece_scale(edc->ec, &pt[2], eight);
 
 	ece_add(edc->ec, pt[1], pt[2]);
-	ece_point_print(edc->ec, pt[0]);
-	ece_point_print(edc->ec, pt[1]);
+	assert(ece_points_equal(edc->ec, pt[0], pt[1]));
 
 	ece_point_free(edc->ec, pt[0]);
 	ece_point_free(edc->ec, pt[1]);
