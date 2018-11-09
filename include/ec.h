@@ -20,10 +20,11 @@ extern const char *ed25519_d_be;
 extern const char *ed25519_gx_be;
 extern const char *ed25519_gy_be;
 
-#define EC_INVALID			(struct ec *)NULL
+#define EC_INVALID			(void *)NULL
 #define EC_POINT_INVALID		(struct ec_point *)NULL
 
-struct ec;
+struct ec_mont;
+struct ec_edwards;
 struct ec_point;
 
 /* All strings store numbers in hex in big-endian form. */
@@ -44,21 +45,46 @@ struct ec_edwards_params {
 	const char *order;	/* Order of the base/gen point. */
 };
 
-struct ec	*ec_new_montgomery(const struct ec_mont_params *p);
-struct ec	*ec_new_edwards(const struct ec_edwards_params *p);
-void		 ec_free(struct ec *ec);
-
-struct ec_point	*ec_point_new(const struct ec *ec, const struct bn *x,
-		 const struct bn *y, const struct bn *z);
-struct ec_point	*ec_point_new_copy(const struct ec *ec,
+struct ec_mont	*ec_new_montgomery(const struct ec_mont_params *p);
+void		 ecm_free(struct ec_mont *ec);
+struct ec_point	*ecm_point_new(const struct ec_mont *ec, const struct bn *x);
+struct ec_point	*ecm_point_new_copy(const struct ec_mont *ec,
 		 const struct ec_point *a);
-void		 ec_point_free(const struct ec *ec, struct ec_point *a);
-void		 ec_point_print(const struct ec *ec, const struct ec_point *a);
-struct bn	*ec_point_x(const struct ec *ec, const struct ec_point *a);
-struct bn	*ec_point_y(const struct ec *ec, const struct ec_point *a);
-
-void		 ec_scale(const struct ec *ec, struct ec_point **a,
+void		 ecm_point_print(const struct ec_mont *ec,
+		 const struct ec_point *a);
+struct bn	*ecm_point_x(const struct ec_mont *ec,
+		 const struct ec_point *a);
+void		 ecm_point_free(const struct ec_mont *ec, struct ec_point *a);
+void		 ecm_point_normalize(const struct ec_mont *ec,
+		 struct ec_point *a);
+void		 ecm_scale(const struct ec_mont *ec, struct ec_point **a,
 		 const struct bn *b);
+void		 ecm_dbl(const struct ec_mont *ec, struct ec_point *a);
+void		 ecm_diffadd(const struct ec_mont *ec, struct ec_point *diff,
+		 const struct ec_point *b, const struct ec_point *c);
+struct ec_edwards
+		*ec_new_edwards(const struct ec_edwards_params *p);
+void		 ece_free(struct ec_edwards *ec);
+struct ec_point	*ece_point_new(const struct ec_edwards *ec,
+		 const struct bn *x, const struct bn *y);
+struct ec_point	*ece_point_new_copy(const struct ec_edwards *ec,
+		 const struct ec_point *a);
+void		 ece_point_print(const struct ec_edwards *ec,
+		 const struct ec_point *a);
+struct bn	*ece_point_x(const struct ec_edwards *ec,
+		 const struct ec_point *a);
+struct bn	*ece_point_y(const struct ec_edwards *ec,
+		 const struct ec_point *a);
+void		 ece_point_free(const struct ec_edwards *ec,
+		 struct ec_point *a);
+void		 ece_point_normalize(const struct ec_edwards *ec,
+		 struct ec_point *a);
+void		 ece_scale(const struct ec_edwards *ec, struct ec_point **a,
+		 const struct bn *b);
+void		 ece_dbl(const struct ec_edwards *ec, struct ec_point *a);
+void		 ece_add(const struct ec_edwards *ec, struct ec_point *a,
+		 const struct ec_point *b);
+
 
 
 /* edc is the context for ed25519. */
@@ -76,4 +102,6 @@ struct edc	*edc_new_verify(const uint8_t *pub);
 void		 edc_free(struct edc *edc);
 void		 edc_sign(const struct edc *edc, uint8_t *tag,
 		 const uint8_t *msg, int mlen);
+void		 edc_verify(const struct edc *edc, const uint8_t *msg,
+		 int mlen);
 #endif

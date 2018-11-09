@@ -15,13 +15,6 @@ struct ec_point {
 	struct bn *z;
 };
 
-enum ec_form {
-	ECF_WEIERSTRASS,
-	ECF_MONTGOMERY,
-	ECF_EDWARDS,
-	ECF_MAX,
-};
-
 struct ec_mont {
 	struct bn *prime;
 	struct bn *a;
@@ -41,16 +34,9 @@ struct ec_edwards {
 	struct bn_ctx_mont *mctx;
 };
 
-struct ec {
-	enum ec_form form;
-	union {
-		struct ec_mont mont;
-		struct ec_edwards edwards;
-	} u;
-};
-
 struct edc {
-	struct ec *ec;
+	struct ec_edwards *ec;
+	struct ec_point *pt_pub;
 	uint8_t priv_dgst[SHA512_DIGEST_LEN];	/* H(priv). */
 	uint8_t pub[32];
 	char to_sign;
