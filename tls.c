@@ -387,7 +387,7 @@ struct tls_ctx *tls_ctx_new()
 {
 	int n;
 	struct tls_ctx *ctx;
-	struct ec *ec;
+	struct ec_mont *ec;
 	struct ec_point *pub;
 	struct bn *t, *priv;
 	struct ec_mont_params emp;
@@ -415,8 +415,8 @@ struct tls_ctx *tls_ctx_new()
 
 	/* Generate public key. */
 	pub = EC_POINT_INVALID;
-	ec_scale(ec, &pub, priv);
-	t = ec_point_x(ec, pub);
+	ecm_scale(ec, &pub, priv);
+	t = ecm_point_x(ec, pub);
 	/* On-Wire format is little-endian byte array. */
 	ctx->secrets.pub[0] = bn_to_bytes_le(t, &n);	/* My public. */
 
@@ -424,8 +424,8 @@ struct tls_ctx *tls_ctx_new()
 	sha256_final(&hctx, ctx->transcript.empty);
 
 	bn_free(t);
-	ec_point_free(ec, pub);
-	ec_free(ec);
+	ecm_point_free(ec, pub);
+	ecm_free(ec);
 	bn_free(priv);
 	return ctx;
 }
@@ -485,7 +485,7 @@ static void tls_derive_handshake_secrets(struct tls_ctx *ctx)
 {
 	int sz;
 	static struct sha256_ctx hctx;
-	struct ec *ec;
+	struct ec_mont *ec;
 	struct ec_point *pub;
 	struct bn *t, *priv;
 	struct ec_mont_params emp;
@@ -505,11 +505,11 @@ static void tls_derive_handshake_secrets(struct tls_ctx *ctx)
 	 * form on the network.
 	 */
 	t = bn_new_from_bytes_le(ctx->secrets.pub[1], 32);
-	pub = ec_point_new(ec, t, NULL, NULL);
-	ec_scale(ec, &pub, priv);
+	pub = ecm_point_new(ec, t);
+	ecm_scale(ec, &pub, priv);
 	bn_free(priv);
 	bn_free(t);
-	t = ec_point_x(ec, pub);
+	t = ecm_point_x(ec, pub);
 
 	/*
 	 * Shared secret needs to be converted to little-endian byte-array
@@ -518,8 +518,8 @@ static void tls_derive_handshake_secrets(struct tls_ctx *ctx)
 	ctx->secrets.shared = bn_to_bytes_le(t, &sz);
 	assert(sz == 32);
 	bn_free(t);
-	ec_point_free(ec, pub);
-	ec_free(ec);
+	ecm_point_free(ec, pub);
+	ecm_free(ec);
 
 	hctx = ctx->transcript.hctx;
 	sha256_final(&hctx, ctx->transcript.shello);
