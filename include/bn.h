@@ -32,6 +32,7 @@ uint8_t		*bn_to_bytes_be(const struct bn *b, int *len);
 
 void		 bn_free(struct bn *b);
 
+int		 bn_is_even(const struct bn *b);
 int		 bn_is_zero(const struct bn *b);
 int		 bn_is_one(const struct bn *b);
 

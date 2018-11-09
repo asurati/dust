@@ -24,7 +24,7 @@ static const int bn_nlimbs[NUM_LIMB_SIZES] = {
 };
 
 static const int limbs_nfree[NUM_LIMB_SIZES] = {
-	20,20,20,20,
+	20,20,20,40,
 	30,20,10,10,
 	10,10,10,10
 };
@@ -255,7 +255,7 @@ char bn_test_bit(const struct bn *b, int ix)
 	return b->l->l[l] & ((limb_t)1 << ix) ? 1 : 0;
 }
 
-static char bn_is_even(const struct bn *b)
+int bn_is_even(const struct bn *b)
 {
 	if (bn_is_zero(b))
 		return 1;
