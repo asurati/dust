@@ -47,6 +47,7 @@ void		 bn_shl(struct bn *a, int c);
 void		 bn_shr(struct bn *a, int c);
 void		 bn_gcd(struct bn *a, const struct bn *b);
 int		 bn_msb(const struct bn *a);
+int		 bn_cmp(const struct bn *a, const struct bn *b);
 
 int		 bn_cmp_abs(const struct bn *a, const struct bn *b);
 int		 bn_cmp_int(const struct bn *a, int v);

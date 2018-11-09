@@ -911,6 +911,22 @@ struct bn *bn_new_from_string_be(const char *str, int radix)
 	return b;
 }
 
+int bn_cmp(const struct bn *a, const struct bn *b)
+{
+	int cmp;
+
+	assert(a != BN_INVALID && b != BN_INVALID);
+	if (a->neg != b->neg) {
+		cmp = a->neg ?  -1 : 1;
+		return cmp;
+	}
+
+	cmp = bn_cmp_abs(a, b);
+	if (a->neg)
+		cmp = -cmp;
+	return cmp;
+}
+
 /* Compare without considering signs. */
 int bn_cmp_abs(const struct bn *a, const struct bn *b)
 {
