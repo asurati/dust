@@ -502,12 +502,11 @@ void ece_point_normalize(const struct ec_edwards *ec, struct ec_point *a)
 }
 
 /*
- * All co-ordinates in projective, Montgomery form. mdbl-2008-bbjlp.
- * Leaves the Z coordinate set to 1.
+ * All co-ordinates in projective, Montgomery form. dbl-2008-bbjlp.
  */
 void ece_dbl(const struct ec_edwards *ec, struct ec_point *a)
 {
-	struct bn *t[6], *two;
+	struct bn *t[7];
 
 	assert(ec != EC_INVALID);
 	assert(a != EC_POINT_INVALID);
@@ -526,20 +525,21 @@ void ece_dbl(const struct ec_edwards *ec, struct ec_point *a)
 	t[4] = bn_new_copy(t[3]);
 	bn_add_mont(ec->mctx, t[4], t[2]);	/* F = E + D */
 
-	two = bn_new_from_int(2);
-	bn_to_mont(ec->mctx, two);
-	t[5] = bn_new_copy(t[4]);
-	bn_sub_mont(ec->mctx, t[5], two);	/* F - 2 */
-	bn_free(two);
+	t[5] = bn_new_copy(a->z);
+	bn_mul_mont(ec->mctx, t[5], t[5]);	/* H = z^2 */
+	bn_add_mont(ec->mctx, t[5], t[5]);	/* 2H */
+
+	t[6] = bn_new_copy(t[4]);
+	bn_sub_mont(ec->mctx, t[6], t[5]);	/* J = F - 2H */
 
 	bn_sub_mont(ec->mctx, t[0], t[1]);
 	bn_sub_mont(ec->mctx, t[0], t[2]);
-	bn_mul_mont(ec->mctx, t[0], t[5]);	/* X3 = (B-C-D) * (F-2) */
+	bn_mul_mont(ec->mctx, t[0], t[6]);	/* X3 = (B-C-D) * J */
 
 	bn_sub_mont(ec->mctx, t[3], t[2]);
 	bn_mul_mont(ec->mctx, t[3], t[4]);	/* Y3 = (E - D) * F */
 
-	bn_mul_mont(ec->mctx, t[5], t[4]);	/* Z3 = (F - 2) * F */
+	bn_mul_mont(ec->mctx, t[6], t[4]);	/* Z3 = J * F */
 
 	bn_free(a->x);
 	bn_free(a->y);
@@ -547,58 +547,62 @@ void ece_dbl(const struct ec_edwards *ec, struct ec_point *a)
 	bn_free(t[1]);
 	bn_free(t[2]);
 	bn_free(t[4]);
+	bn_free(t[5]);
 
 	a->x = t[0];
 	a->y = t[3];
-	a->z = t[5];
-	ece_point_normalize(ec, a);
+	a->z = t[6];
 }
 
 /*
- * All co-ordinates in projective, Montgomery form. mmadd-2008-bbjlp.
- * Leaves the Z coordinate as 1.
+ * All co-ordinates in projective, Montgomery form. add-2008-bbjlp.
  */
 void ece_add(const struct ec_edwards *ec, struct ec_point *a,
 	     const struct ec_point *b)
 {
-	struct bn *t[7], *one;
+	struct bn *t[8];
 
 	assert(ec != EC_INVALID);
 	assert(a != EC_POINT_INVALID);
 	assert(b != EC_POINT_INVALID);
 
-	t[0] = bn_new_copy(a->x);
-	bn_mul_mont(ec->mctx, t[0], b->x);	/* C = X1 * X2 */
+	t[0] = bn_new_copy(a->z);
+	bn_mul_mont(ec->mctx, t[0], b->z);	/* A = Z1 * Z2 */
 
-	t[1] = bn_new_copy(a->y);
-	bn_mul_mont(ec->mctx, t[1], b->y);	/* D = Y1 * Y2 */
+	t[1] = bn_new_copy(t[0]);
+	bn_mul_mont(ec->mctx, t[1], t[1]);	/* B = A^2 */
 
-	t[2] = bn_new_copy(ec->d);
-	bn_mul_mont(ec->mctx, t[2], t[0]);
-	bn_mul_mont(ec->mctx, t[2], t[1]);	/* E = d * C * D */
+	t[2] = bn_new_copy(a->x);
+	bn_mul_mont(ec->mctx, t[2], b->x);	/* C = X1 * X2 */
 
-	one = bn_new_from_int(1);
-	bn_to_mont(ec->mctx, one);
+	t[3] = bn_new_copy(a->y);
+	bn_mul_mont(ec->mctx, t[3], b->y);	/* D = Y1 * Y2 */
 
-	t[3] = bn_new_copy(one);
-	bn_sub_mont(ec->mctx, t[3], t[2]);	/* 1 - E */
-	t[4] = bn_new_copy(a->x);
-	bn_add_mont(ec->mctx, t[4], a->y);	/* X1 + Y1 */
-	t[5] = bn_new_copy(b->x);
-	bn_add_mont(ec->mctx, t[5], b->y);	/* X2 + Y2 */
-	bn_mul_mont(ec->mctx, t[4], t[5]);
-	bn_sub_mont(ec->mctx, t[4], t[0]);
-	bn_sub_mont(ec->mctx, t[4], t[1]);
-	bn_mul_mont(ec->mctx, t[3], t[4]);	/* X3 */
+	t[4] = bn_new_copy(ec->d);
+	bn_mul_mont(ec->mctx, t[4], t[2]);
+	bn_mul_mont(ec->mctx, t[4], t[3]);	/* E = d * C * D */
 
-	t[6] = bn_new_copy(one);
-	bn_add_mont(ec->mctx, t[6], t[2]);	/* 1 + E */
-	bn_mul_mont(ec->mctx, t[0], ec->a);
-	bn_sub_mont(ec->mctx, t[1], t[0]);
-	bn_mul_mont(ec->mctx, t[6], t[1]);	/* Y3 */
+	t[5] = bn_new_copy(t[1]);
+	bn_sub_mont(ec->mctx, t[5], t[4]);	/* F = B - E */
 
-	bn_mul_mont(ec->mctx, t[2], t[2]);
-	bn_sub_mont(ec->mctx, one, t[2]);	/* Z3 */
+	bn_add_mont(ec->mctx, t[1], t[4]);	/* G = B + E */
+
+	t[6] = bn_new_copy(a->x);
+	bn_add_mont(ec->mctx, t[6], a->y);	/* X1 + Y1 */
+	t[7] = bn_new_copy(b->x);
+	bn_add_mont(ec->mctx, t[7], b->y);	/* X2 + Y2 */
+	bn_mul_mont(ec->mctx, t[6], t[7]);	/* (X1+Y1)*(X2+Y2) */
+	bn_sub_mont(ec->mctx, t[6], t[2]);	/* ... - C */
+	bn_sub_mont(ec->mctx, t[6], t[3]);	/* ... - D */
+	bn_mul_mont(ec->mctx, t[6], t[5]);	/* ... * F */
+	bn_mul_mont(ec->mctx, t[6], t[0]);	/* X3 = ... * A */
+
+	bn_mul_mont(ec->mctx, t[2], ec->a);	/* a * C */
+	bn_sub_mont(ec->mctx, t[3], t[2]);	/* D - a * C */
+	bn_mul_mont(ec->mctx, t[3], t[1]);	/* ... * G */
+	bn_mul_mont(ec->mctx, t[3], t[0]);	/* Y3 = ... * A */
+
+	bn_mul_mont(ec->mctx, t[5], t[1]);	/* Z3 */
 
 	bn_free(a->x);
 	bn_free(a->y);
@@ -607,14 +611,12 @@ void ece_add(const struct ec_edwards *ec, struct ec_point *a,
 	bn_free(t[1]);
 	bn_free(t[2]);
 	bn_free(t[4]);
-	bn_free(t[5]);
+	bn_free(t[7]);
 
-	a->x = t[3];
-	a->y = t[6];
-	a->z = one;
-	ece_point_normalize(ec, a);
+	a->x = t[6];
+	a->y = t[3];
+	a->z = t[5];
 }
-
 
 /* All co-ordinates in projective, Montgomery form. */
 void ece_scale(const struct ec_edwards *ec, struct ec_point **_a,
@@ -641,6 +643,7 @@ void ece_scale(const struct ec_edwards *ec, struct ec_point **_a,
 			ece_add(ec, pt, a);
 	}
 	ece_point_free(ec, a);
+	ece_point_normalize(ec, pt);
 	*_a = pt;
 }
 
@@ -885,6 +888,7 @@ struct edc *edc_new_sign(const uint8_t *priv)
 	/* Encode. */
 	edc_point_encode(edc, edc->pub, pt);
 	edc->pt_pub = pt;
+	ece_point_print(edc->ec, pt);
 	return edc;
 }
 
@@ -959,7 +963,7 @@ void edc_sign(const struct edc *edc, uint8_t *tag, const uint8_t *msg,
 	bn_free(ord);
 }
 
-/* The last 64 bytes of the msg contains the tag. */
+/* The last 64 bytes of the msg contain the tag. */
 void edc_verify(const struct edc *edc, const uint8_t *msg, int mlen)
 {
 	const uint8_t *r, *s;
@@ -1007,6 +1011,7 @@ void edc_verify(const struct edc *edc, const uint8_t *msg, int mlen)
 	ece_scale(edc->ec, &pt[2], eight);
 
 	ece_add(edc->ec, pt[1], pt[2]);
+	ece_point_normalize(edc->ec, pt[1]);
 	assert(ece_points_equal(edc->ec, pt[0], pt[1]));
 
 	ece_point_free(edc->ec, pt[0]);
