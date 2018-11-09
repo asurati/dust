@@ -888,7 +888,6 @@ struct edc *edc_new_sign(const uint8_t *priv)
 	/* Encode. */
 	edc_point_encode(edc, edc->pub, pt);
 	edc->pt_pub = pt;
-	ece_point_print(edc->ec, pt);
 	return edc;
 }
 
