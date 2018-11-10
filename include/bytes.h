@@ -9,6 +9,10 @@
 
 #include <stdint.h>
 
+#ifdef __OpenBSD__
+#include <endian.h>
+#endif
+
 static __inline__ uint64_t bswap64(uint64_t x)
 {
 	return __builtin_bswap64(x);
@@ -39,6 +43,7 @@ static __inline__ uint32_t identity32(uint32_t x)
 	return x;
 }
 
+#ifdef __linux__
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 #define htobe16(x)			identity16(x)
 #define htobe32(x)			identity32(x)
@@ -67,5 +72,6 @@ static __inline__ uint32_t identity32(uint32_t x)
 #define le16toh(x)			identity16(x)
 #define le32toh(x)			identity32(x)
 #define le64toh(x)			identity64(x)
-#endif
+#endif	/* __BYTE_ORDER__ */
+#endif	/* #ifdef __linux__ */
 #endif

@@ -11,12 +11,12 @@ BIN = dust
 
 CFLAGS += -c -I ./include -MMD -MP -std=c11
 CFLAGS += -Wall -Wextra -Werror -Wshadow -Wfatal-errors -pedantic -pedantic-errors
-CFLAGS += -flto
+#CFLAGS += -flto
 CFLAGS += -fstack-protector-strong
 CFLAGS += -g -O0
 #CFLAGS += -g -O3 -D_FORTIFY_SOURCE=2
 
-LDFLAGS += -flto
+#LDFLAGS += -flto
 
 SRCS  = aead.c bn.c chacha.c ec.c hkdf.c hmac.c limb.c list.c main.c
 SRCS += poly1305.c rndm.c sha2.c tls.c
@@ -26,7 +26,7 @@ OBJS  = $(SRCS:.c=.o)
 all: $(BIN)
 
 $(BIN): $(OBJS)
-	$(CC) $(LDFLAGS) $^ -o $@
+	$(CC) $(LDFLAGS) $(OBJS) -o $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) $< -o $@

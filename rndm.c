@@ -6,9 +6,10 @@
 
 #include <assert.h>
 #include <stdio.h>
-#include <time.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <sys/time.h>
 
 #include <rndm.h>
 
@@ -17,7 +18,7 @@ void rndm_fill(void *bytes, int nbits)
 {
 	int len, i;
 	uint8_t *p;
-	struct timespec tp;
+	struct timeval tv;
 
 	assert(nbits > 0);
 
@@ -30,8 +31,8 @@ void rndm_fill(void *bytes, int nbits)
 	memset(p, 0, len);
 
 	/* Not cryptographically secure. */
-	timespec_get(&tp, TIME_UTC);
-	srand(tp.tv_nsec);
+	gettimeofday(&tv, NULL);
+	srand(tv.tv_usec);
 
 	for (i = len - 1; i >= 0; --i)
 		p[i] = rand() & 0xff;
