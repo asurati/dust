@@ -9,10 +9,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <endian.h>
 
 #include <arpa/inet.h>
 
+#include <bytes.h>
 #include <bn.h>
 #include <ec.h>
 #include <rndm.h>

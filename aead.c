@@ -6,8 +6,8 @@
 
 #include <assert.h>
 #include <string.h>
-#include <endian.h>	/* Non-standard. */
 
+#include <bytes.h>
 #include <chacha.h>
 #include <poly1305.h>
 #include <aead.h>

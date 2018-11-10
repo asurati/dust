@@ -30,7 +30,7 @@ void rndm_fill(void *bytes, int nbits)
 	memset(p, 0, len);
 
 	/* Not cryptographically secure. */
-	clock_gettime(CLOCK_REALTIME, &tp);
+	timespec_get(&tp, TIME_UTC);
 	srand(tp.tv_nsec);
 
 	for (i = len - 1; i >= 0; --i)

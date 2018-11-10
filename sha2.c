@@ -7,9 +7,10 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
-#include <endian.h>
 
 #include <arpa/inet.h>
+
+#include <bytes.h>
 
 #include <sys/sha2.h>
 

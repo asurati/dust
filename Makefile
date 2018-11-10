@@ -4,44 +4,37 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 
-# Makefile for GNU Make
+# Native build: make
+# Cross build: make CC=powerpc-linux-gnu-cc LDFLAGS=-static
 
-ifeq ($(ARCH), ppc)
-	CC := powerpc-linux-gnu-gcc
-else
-	CC := gcc
-endif
+BIN = dust
 
-BIN := dust
-
-CFLAGS := -c -I ./include -MMD -MP
-CFLAGS += -Wall -Wextra -Werror -Wshadow -Wfatal-errors -Wpedantic -pedantic-errors
+CFLAGS += -c -I ./include -MMD -MP -std=c11
+CFLAGS += -Wall -Wextra -Werror -Wshadow -Wfatal-errors -pedantic -pedantic-errors
 CFLAGS += -flto
 CFLAGS += -fstack-protector-strong
-#CFLAGS += -g -O3 -D_FORTIFY_SOURCE=2
 CFLAGS += -g -O0
+#CFLAGS += -g -O3 -D_FORTIFY_SOURCE=2
 
-LDFLAGS := -flto
-ifeq ($(ARCH), ppc)
-	LDFLAGS += -static
-endif
+LDFLAGS += -flto
 
-CSRC := $(wildcard *.c)
-DEP := $(CSRC:.c=.d)
-OBJ := $(CSRC:.c=.o)
+SRCS  = aead.c bn.c chacha.c ec.c hkdf.c hmac.c limb.c list.c main.c
+SRCS += poly1305.c rndm.c sha2.c tls.c
+DEPS  = $(SRCS:.c=.d)
+OBJS  = $(SRCS:.c=.o)
 
 all: $(BIN)
 
-$(BIN): $(OBJ)
+$(BIN): $(OBJS)
 	$(CC) $(LDFLAGS) $^ -o $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) $< -o $@
 
--include $(DEP)
+-include $(DEPS)
 
 c:
-	rm -f $(BIN) $(OBJ) $(DEP)
+	rm -f $(BIN) $(OBJS) $(DEPS)
 r:
 	@./$(BIN)
 
